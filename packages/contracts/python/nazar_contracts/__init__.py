@@ -50,6 +50,8 @@ from nazar_contracts.job_api import (
     WorkerLeaseRequest,
 )
 from nazar_contracts.jobs import (
+    AUTO_MAX_FRAMES,
+    AUTO_MIN_FRAMES,
     FPS_DEFAULT,
     FPS_MAX,
     FPS_MIN,
@@ -90,6 +92,8 @@ from nazar_contracts.missions import (
 from nazar_contracts.telemetry import AltitudeKind, TelemetrySummary, TimeGap
 
 __all__ = [
+    "AUTO_MAX_FRAMES",
+    "AUTO_MIN_FRAMES",
     "EVENT_SCHEMA_VERSION",
     "FPS_DEFAULT",
     "FPS_MAX",

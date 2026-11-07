@@ -1,4 +1,4 @@
-"""Frame sampling at a chosen rate (frames per second of video).
+"""Frame sampling at a chosen rate (frames per second of video), or automatically.
 
 The upload-time preflight picks keyframes by quality and viewpoint change. A reconstruction
 job instead samples the video at the rate the user chose: the video is cut into equal time
@@ -16,6 +16,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from nazar_contracts import (
+    AUTO_MIN_FRAMES,
     MIN_FRAMES,
     FrameFlag,
     FrameSeries,
@@ -43,27 +44,53 @@ class SamplePlan:
     fps_requested: float
     fps_effective: float
     cap: int
+    auto: bool = False
+    """The frame count was chosen from the video length, not from a rate."""
 
 
-def count_frames(duration_s: float, fps: float, cap: int, decoded: int) -> tuple[int, int, bool]:
+def auto_frames(duration_s: float, auto_max: int) -> int:
+    """Frames automatic mode asks for: about one per second of video, but never fewer than
+    `AUTO_MIN_FRAMES` (a 6 s clip is sampled at ~4 fps, not reduced to 6 views) and never
+    more than `auto_max`. Overlap between neighbouring frames is what the reconstruction
+    needs, and a short clip has little of it to spare."""
+    return min(auto_max, max(AUTO_MIN_FRAMES, round(duration_s)))
+
+
+def count_frames(
+    duration_s: float,
+    fps: float | None,
+    cap: int,
+    decoded: int,
+    auto_max: int | None = None,
+) -> tuple[int, int, bool]:
     """(frames wanted, windows used, clamped) for a video of `duration_s` seconds. The caller
-    uses this before any frame is read, so the UI can quote the number up front."""
-    wanted = max(1, round(duration_s * fps))
+    uses this before any frame is read, so the UI can quote the number up front. `fps=None`
+    is automatic mode (see `auto_frames`)."""
+    wanted = (
+        auto_frames(duration_s, auto_max if auto_max is not None else cap)
+        if fps is None
+        else max(1, round(duration_s * fps))
+    )
     windows = min(wanted, cap, max(decoded, 1))
     return wanted, windows, wanted > cap
 
 
-def plan_frames(series: FrameSeries, fps: float, cap: int) -> SamplePlan:
+def plan_frames(
+    series: FrameSeries, fps: float | None, cap: int, auto_max: int | None = None
+) -> SamplePlan:
     t = series.t
     if len(t) < 2 or t[-1] - t[0] <= 0:
         raise MediaError("too_short", "The video is too short to sample frames from.")
     t0, duration = t[0], t[-1] - t[0]
-    wanted, windows, clamped = count_frames(duration, fps, cap, len(t))
+    wanted, windows, clamped = count_frames(duration, fps, cap, len(t), auto_max)
     if windows < MIN_FRAMES:
         raise MediaError(
             "too_few_frames",
             f"At {fps:g} frames per second this {duration:.1f} s video gives {windows} "
-            f"frame(s); at least {MIN_FRAMES} are needed. Choose a higher rate.",
+            f"frame(s); at least {MIN_FRAMES} are needed. Choose a higher rate."
+            if fps is not None
+            else f"This {duration:.1f} s video has only {windows} distinct frame(s); at least "
+            f"{MIN_FRAMES} are needed.",
         )
     median = statistics.median(series.sharpness) or 1.0
     usable = [not (_UNUSABLE & set(f)) for f in series.flags]
@@ -91,8 +118,9 @@ def plan_frames(series: FrameSeries, fps: float, cap: int) -> SamplePlan:
     if len(picks) < MIN_FRAMES:
         raise MediaError(
             "too_few_usable_frames",
-            f"Only {len(picks)} usable frames were found at {fps:g} frames per second "
-            "(the rest are blurry, dark or over-exposed).",
+            f"Only {len(picks)} usable frames were found "
+            + (f"at {fps:g} frames per second " if fps is not None else "")
+            + "(the rest are blurry, dark or over-exposed).",
         )
     return SamplePlan(
         keyframes=picks,
@@ -100,23 +128,25 @@ def plan_frames(series: FrameSeries, fps: float, cap: int) -> SamplePlan:
         windows=windows,
         clamped=clamped,
         dropped=windows - len(picks),
-        fps_requested=fps,
+        fps_requested=fps if fps is not None else round(wanted / duration, 3),
         fps_effective=round(len(picks) / duration, 3),
         cap=cap,
+        auto=fps is None,
     )
 
 
 def sample_job_frames(
     src: Path,
     report: PreflightReport,
-    fps: float,
+    fps: float | None,
     cap: int,
     out_dir: Path,
     timeout: float = 900,
+    auto_max: int | None = None,
 ) -> SamplePlan:
     """Choose the frames, extract them at full resolution into `out_dir/keyframes`, and write
     the job's own `preflight.json` (the upload's report with these keyframes)."""
-    plan = plan_frames(report.series, fps, cap)
+    plan = plan_frames(report.series, fps, cap, auto_max)
     out_dir.mkdir(parents=True, exist_ok=True)
     extract_keyframe_images(src, plan.keyframes, out_dir, timeout)
     sampled = report.model_copy(update={"keyframes": plan.keyframes})

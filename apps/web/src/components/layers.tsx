@@ -6,10 +6,12 @@ import {
   Color,
   Float32BufferAttribute,
   Mesh,
+  MeshBasicMaterial,
   SRGBColorSpace,
   Vector3,
   type BufferAttribute,
   type BufferGeometry,
+  type Material,
 } from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { PLYLoader } from 'three/examples/jsm/loaders/PLYLoader.js';
@@ -140,8 +142,10 @@ function linearColors(source: BufferAttribute): Float32BufferAttribute {
 }
 
 /**
- * The solid surface (GLB triangles with vertex colours). Lit, so its shape reads; parts the
- * cameras never saw are inferred surface and are described in the report, not hidden here.
+ * The solid surface (GLB triangles). Either photographed - a texture baked from the video frames,
+ * shown unlit so the picture is not re-shaded - or, when no texture could be made, lit with
+ * vertex colours so its shape still reads. Parts the cameras never saw are inferred surface and
+ * are described in the report, not hidden here.
  */
 export function MeshLayer({
   manifest,
@@ -150,7 +154,10 @@ export function MeshLayer({
   manifest: ArtifactManifest;
   visible?: boolean;
 }) {
-  const [geometry, setGeometry] = useState<BufferGeometry | null>(null);
+  const [parts, setParts] = useState<{
+    geometry: BufferGeometry;
+    material: Material | null;
+  } | null>(null);
   const measuring = useViewerStore((s) => s.measuring);
   const pick = useViewerStore((s) => s.pick);
   const setLayerInfo = useViewerStore((s) => s.setLayerInfo);
@@ -164,18 +171,24 @@ export function MeshLayer({
           buffer,
           '',
           (gltf) => {
-            const found: BufferGeometry[] = [];
+            const found: Mesh[] = [];
             gltf.scene.traverse((o) => {
-              if (o instanceof Mesh) found.push(o.geometry as BufferGeometry);
+              if (o instanceof Mesh) found.push(o as Mesh);
             });
-            const geo = found[0];
-            if (!geo || controller.signal.aborted) return;
+            const first = found[0];
+            if (!first || controller.signal.aborted) return;
+            const geo = first.geometry;
+            // A photographic texture arrives as the file's own (unlit) material; without one the
+            // vertex colours are used with the lit material below.
+            const loaded = Array.isArray(first.material) ? first.material[0] : first.material;
+            const photo = loaded instanceof MeshBasicMaterial && loaded.map ? loaded : null;
+            if (photo?.map) photo.map.anisotropy = 8;
             const color = geo.getAttribute('color') as BufferAttribute | undefined;
             if (color) geo.setAttribute('color', linearColors(color));
             if (!(geo.getAttribute('normal') as BufferAttribute | undefined))
               geo.computeVertexNormals();
             geo.computeBoundingSphere();
-            setGeometry(geo);
+            setParts({ geometry: geo, material: photo });
             setLayerInfo({
               triangles: geo.index ? geo.index.count / 3 : geo.getAttribute('position').count / 3,
             });
@@ -196,15 +209,17 @@ export function MeshLayer({
 
   useEffect(
     () => () => {
-      geometry?.dispose();
+      parts?.geometry.dispose();
+      if (parts?.material instanceof MeshBasicMaterial) parts.material.map?.dispose();
+      parts?.material?.dispose();
     },
-    [geometry],
+    [parts],
   );
 
-  if (!geometry) return null;
+  if (!parts) return null;
   return (
     <mesh
-      geometry={geometry}
+      geometry={parts.geometry}
       visible={visible}
       onClick={(e) => {
         if (!measuring || !visible) return;
@@ -212,7 +227,11 @@ export function MeshLayer({
         pick([e.point.x, e.point.y, e.point.z]);
       }}
     >
-      <meshStandardMaterial vertexColors roughness={0.95} metalness={0} side={2} />
+      {parts.material ? (
+        <primitive object={parts.material} attach="material" />
+      ) : (
+        <meshStandardMaterial vertexColors roughness={0.95} metalness={0} side={2} />
+      )}
     </mesh>
   );
 }

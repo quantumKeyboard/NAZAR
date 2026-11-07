@@ -517,13 +517,18 @@ export interface JobEstimateData {
   total_s: number;
 }
 /**
- * Which frames of the video a job uses: chosen at the requested rate, one per time
- * window (the sharpest usable frame), and lowered to the location's frame cap if needed.
+ * Which frames of the video a job uses: chosen at the requested rate (or automatically),
+ * one per time window (the sharpest usable frame), and lowered to the location's frame cap
+ * if needed.
  *
  * This interface was referenced by `NazarContracts`'s JSON-Schema
  * via the `definition` "SamplingInfo".
  */
 export interface SamplingInfo {
+  /**
+   * True when the frame count was chosen automatically from the video length.
+   */
+  auto?: boolean;
   /**
    * Most frames this job's compute location allows.
    */

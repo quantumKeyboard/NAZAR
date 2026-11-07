@@ -26,6 +26,8 @@ from nazar_api.security import SESSION_COOKIE, user_for_token
 from nazar_api.settings import Settings
 from nazar_api.storage import PREFLIGHT_DIR, artifact_path, asset_dir, job_frames_dir, remove_tree
 from nazar_contracts import (
+    AUTO_MAX_FRAMES,
+    FPS_DEFAULT,
     MAX_FRAMES,
     TERMINAL_STATUSES,
     AssetKind,
@@ -62,8 +64,8 @@ def create_job(
     mission_id: str, body: JobCreate, user: UserDep, db: DbDep, settings: SettingsDep
 ) -> Job:
     """Queue reconstruction of the mission's validated video. For the standard pipeline the
-    frames are sampled first (at `body.fps`), so a video that cannot give enough frames is
-    refused here with a reason instead of failing later on the GPU."""
+    frames are sampled first (at `body.fps`, or automatically), so a video that cannot give
+    enough frames is refused here with a reason instead of failing later on the GPU."""
     mission = _owned_mission(db, user, mission_id)
     video = db.scalars(
         select(AssetRecord).where(
@@ -97,7 +99,8 @@ def create_job(
         telemetry_asset_id=telemetry,
         pipeline=body.pipeline.value,
         compute=body.compute.value,
-        fps=body.fps,
+        fps=body.fps if body.fps is not None else FPS_DEFAULT,
+        fps_auto=body.fps is None,
         status=JobStatus.CREATED.value,
         attempt=1,
         last_seq=0,
@@ -128,7 +131,12 @@ def _sample_frames(
     try:
         report = PreflightReport.model_validate_json(report_file.read_text(encoding="utf-8"))
         plan = sample_job_frames(
-            folder / video.stored_name, report, body.fps, cap, job_frames_dir(settings, job.id)
+            folder / video.stored_name,
+            report,
+            body.fps,
+            cap,
+            job_frames_dir(settings, job.id),
+            auto_max=AUTO_MAX_FRAMES[body.compute],
         )
     except MediaError as exc:
         db.rollback()

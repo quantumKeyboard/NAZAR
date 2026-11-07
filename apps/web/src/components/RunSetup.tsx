@@ -1,5 +1,6 @@
 import {
   FPS,
+  FRAME_LIMITS,
   type ComputeTarget,
   type ModelReadiness,
   type PreflightReport,
@@ -8,6 +9,7 @@ import {
 import { useState } from 'react';
 import { COMPUTE_LABEL } from '../lib/compute';
 import { formatRange } from '../lib/estimate';
+import { MANUAL_DEFAULT } from '../lib/fpsPreference';
 import {
   FPS_PRESETS,
   clampFps,
@@ -22,8 +24,9 @@ interface Props {
   compute: ComputeTarget;
   presence: WorkerPresence | undefined;
   report: PreflightReport | null;
-  fps: number;
-  onFps: (fps: number) => void;
+  /** Frames per second, or null for automatic (the frame count follows the video length). */
+  fps: number | null;
+  onFps: (fps: number | null) => void;
 }
 
 function Model({ m }: { m: ModelReadiness }) {
@@ -38,10 +41,16 @@ function Model({ m }: { m: ModelReadiness }) {
   );
 }
 
-/** Choose the frame rate and see what it means before anything runs: how many frames, how
- *  long it should take on this worker, and which models are ready. */
+const MODE_BUTTON = 'rounded-button-sm border-[1.5px] px-3 py-1.5 text-sm';
+const on = 'border-carbon bg-carbon text-paper';
+const off = 'border-slate text-slate hover:bg-mist';
+
+/** Choose how many frames to use and see what it means before anything runs: how many frames,
+ *  how long it should take on this worker, and which models are ready. */
 export function RunSetup({ compute, presence, report, fps, onFps }: Props) {
-  const [text, setText] = useState(String(fps));
+  const [manual, setManual] = useState(fps ?? MANUAL_DEFAULT);
+  const [text, setText] = useState(String(fps ?? MANUAL_DEFAULT));
+  const auto = fps === null;
   const duration = report?.probe.duration_s ?? null;
   const plan = duration ? planFrames(duration, fps, compute) : null;
   const seconds = plan ? preRunSeconds(presence?.time_model, plan.frames) : null;
@@ -50,81 +59,113 @@ export function RunSetup({ compute, presence, report, fps, onFps }: Props) {
 
   const commit = (value: number) => {
     const next = clampFps(value);
+    setManual(next);
     setText(String(next));
     onFps(next);
   };
 
   return (
     <fieldset className="mt-6" data-testid="run-setup">
-      <legend className="mono-label text-slate">Frames per second</legend>
-      <div className="mt-2 flex flex-wrap items-center gap-4">
-        <input
-          type="range"
-          aria-label="Frames per second (slider)"
-          min={FPS.min}
-          max={FPS.max}
-          step={0.25}
-          value={fps}
-          onChange={(e) => {
-            commit(Number(e.target.value));
+      <legend className="mono-label text-slate">Frames to use</legend>
+      <div className="mt-2 flex flex-wrap items-center gap-2" role="group" aria-label="Frame mode">
+        <button
+          type="button"
+          aria-pressed={auto}
+          onClick={() => {
+            onFps(null);
           }}
-          className="w-40 accent-carbon"
-          data-testid="fps-slider"
-        />
-        <label className="flex items-center gap-2 text-sm text-slate">
-          <input
-            type="text"
-            inputMode="decimal"
-            aria-label="Frames per second"
-            value={text}
-            onChange={(e) => {
-              setText(e.target.value);
-              const parsed = parseFps(e.target.value);
-              if (parsed !== null) onFps(parsed);
-            }}
-            onBlur={() => {
-              commit(parseFps(text) ?? fps);
-            }}
-            className="w-20 rounded-button-sm border-[1.5px] border-slate px-3 py-2 text-carbon"
-            data-testid="fps-input"
-          />
-          fps
-        </label>
-        <div className="flex gap-2">
-          {FPS_PRESETS.map((p) => (
-            <button
-              key={p}
-              type="button"
-              onClick={() => {
-                commit(p);
-              }}
-              aria-pressed={fps === p}
-              className={`rounded-button-sm border-[1.5px] px-3 py-1.5 text-sm ${
-                fps === p
-                  ? 'border-carbon bg-carbon text-paper'
-                  : 'border-slate text-slate hover:bg-mist'
-              }`}
-            >
-              {formatFps(p)}
-            </button>
-          ))}
-        </div>
+          className={`${MODE_BUTTON} ${auto ? on : off}`}
+          data-testid="fps-auto"
+        >
+          Automatic (recommended)
+        </button>
+        <button
+          type="button"
+          aria-pressed={!auto}
+          onClick={() => {
+            commit(manual);
+          }}
+          className={`${MODE_BUTTON} ${auto ? off : on}`}
+          data-testid="fps-manual"
+        >
+          Choose frames per second
+        </button>
       </div>
+
+      {!auto && (
+        <div className="mt-3 flex flex-wrap items-center gap-4">
+          <input
+            type="range"
+            aria-label="Frames per second (slider)"
+            min={FPS.min}
+            max={FPS.max}
+            step={0.25}
+            value={fps}
+            onChange={(e) => {
+              commit(Number(e.target.value));
+            }}
+            className="w-40 accent-carbon"
+            data-testid="fps-slider"
+          />
+          <label className="flex items-center gap-2 text-sm text-slate">
+            <input
+              type="text"
+              inputMode="decimal"
+              aria-label="Frames per second"
+              value={text}
+              onChange={(e) => {
+                setText(e.target.value);
+                const parsed = parseFps(e.target.value);
+                if (parsed !== null) {
+                  setManual(parsed);
+                  onFps(parsed);
+                }
+              }}
+              onBlur={() => {
+                commit(parseFps(text) ?? manual);
+              }}
+              className="w-20 rounded-button-sm border-[1.5px] border-slate px-3 py-2 text-carbon"
+              data-testid="fps-input"
+            />
+            fps
+          </label>
+          <div className="flex gap-2">
+            {FPS_PRESETS.map((p) => (
+              <button
+                key={p}
+                type="button"
+                onClick={() => {
+                  commit(p);
+                }}
+                aria-pressed={fps === p}
+                className={`${MODE_BUTTON} ${fps === p ? on : off}`}
+              >
+                {formatFps(p)}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       <p className="mt-3 text-sm" data-testid="fps-summary">
         {plan && duration ? (
           plan.tooFew ? (
             <>
-              At {formatFps(fps)} this {duration.toFixed(0)} s video gives only {plan.frames} frame
-              {plan.frames === 1 ? '' : 's'}; at least 3 are needed. Choose a higher rate.
+              At {formatFps(fps ?? 0)} this {duration.toFixed(0)} s video gives only {plan.frames}{' '}
+              frame{plan.frames === 1 ? '' : 's'}; at least {FRAME_LIMITS.min} are needed. Choose a
+              higher rate.
             </>
           ) : (
             <>
-              <strong>{plan.frames} frames</strong> from a {duration.toFixed(0)} s video
+              <strong>{plan.frames} frames</strong> from a {duration.toFixed(1)} s video (
+              {plan.auto
+                ? `automatic: about one per second, at least ${String(FRAME_LIMITS.auto_min)}; that is ${formatFps(plan.effectiveFps)}`
+                : `about ${formatFps(plan.effectiveFps)}`}
+              ).
               {plan.clamped
-                ? `, lowered from ${String(plan.wanted)} to the ${COMPUTE_LABEL[compute]} limit of ${String(plan.cap)} (${formatFps(plan.effectiveFps)}).`
-                : ` (about ${formatFps(plan.effectiveFps)}).`}{' '}
-              Each frame is the sharpest usable one in its second.
+                ? ` Lowered from ${String(plan.wanted)} to the ${COMPUTE_LABEL[compute]} limit of ${String(plan.cap)}.`
+                : ''}{' '}
+              Each frame is the sharpest usable one in its stretch of the video.
             </>
           )
         ) : (

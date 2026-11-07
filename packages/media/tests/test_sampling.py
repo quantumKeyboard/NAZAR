@@ -2,9 +2,9 @@
 
 import pytest
 
-from nazar_contracts import FrameFlag, FrameSeries, KeyframeReason
+from nazar_contracts import AUTO_MIN_FRAMES, FrameFlag, FrameSeries, KeyframeReason
 from nazar_media import MediaError
-from nazar_media.sampling import count_frames, plan_frames
+from nazar_media.sampling import auto_frames, count_frames, plan_frames
 
 
 def series(
@@ -72,3 +72,22 @@ def test_count_frames_is_bounded_by_decoded_frames() -> None:
     assert count_frames(38.4, 1.0, 64, 1000) == (38, 38, False)
     assert count_frames(2.0, 4.0, 64, 5) == (8, 5, False)
     assert count_frames(100.0, 1.0, 64, 3000) == (100, 64, True)
+
+
+def test_automatic_mode_samples_a_short_clip_densely() -> None:
+    # A 6.6 s clip: 1 fps would give 7 views; automatic asks for the minimum instead.
+    assert auto_frames(6.6, 40) == AUTO_MIN_FRAMES
+    plan = plan_frames(series(661, fps=100.0), fps=None, cap=64, auto_max=40)
+    assert plan.auto
+    assert len(plan.keyframes) == AUTO_MIN_FRAMES
+    assert plan.fps_effective > 3
+
+
+def test_automatic_mode_is_about_one_per_second_for_a_long_clip_up_to_its_maximum() -> None:
+    assert auto_frames(30.0, 40) == 30
+    assert auto_frames(300.0, 40) == 40
+    assert auto_frames(300.0, 96) == 96
+
+
+def test_automatic_mode_is_still_bounded_by_the_decoded_frames() -> None:
+    assert count_frames(6.0, None, 64, 10, auto_max=40) == (AUTO_MIN_FRAMES, 10, False)

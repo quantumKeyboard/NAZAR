@@ -81,7 +81,9 @@ def model_readiness(profile: ComputeProfile, gpu: GpuRuntime) -> list[ModelReadi
         row(
             "gsplat", StageName.DENSE_RECONSTRUCTION, gpu.missing(splat=True), "Gaussian splatting"
         ),
-        row("Open3D", StageName.SURFACE_PROCESSING, gpu.missing(), "Poisson meshing"),
+        # The height-map surface and its texture run on the CPU in the worker process; Open3D
+        # (GPU environment) is only the fallback, so it does not gate this stage.
+        row("Height map", StageName.SURFACE_PROCESSING, None, "surface + texture (CPU)"),
     ]
 
 
@@ -93,7 +95,7 @@ LOCAL_COST: dict[StageName, tuple[float, float]] = {
     StageName.DEPTH_PRIORS: (7.0, 2.1),
     StageName.SENSOR_OPTIMIZATION: (0.3, 0.0),
     StageName.DENSE_RECONSTRUCTION: (3.0, 0.3),  # fusion; the splat is added by iteration count
-    StageName.SURFACE_PROCESSING: (4.0, 0.8),
+    StageName.SURFACE_PROCESSING: (20.0, 3.0),  # height map + texture bake (CPU), per frame
     StageName.ANALYSIS: (0.2, 0.0),
     StageName.EXPORTING: (0.4, 0.03),
 }

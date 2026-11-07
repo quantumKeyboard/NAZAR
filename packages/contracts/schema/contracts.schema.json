@@ -1888,8 +1888,13 @@
     },
     "SamplingInfo": {
       "additionalProperties": false,
-      "description": "Which frames of the video a job uses: chosen at the requested rate, one per time\nwindow (the sharpest usable frame), and lowered to the location's frame cap if needed.",
+      "description": "Which frames of the video a job uses: chosen at the requested rate (or automatically),\none per time window (the sharpest usable frame), and lowered to the location's frame cap\nif needed.",
       "properties": {
+        "auto": {
+          "default": false,
+          "description": "True when the frame count was chosen automatically from the video length.",
+          "type": "boolean"
+        },
         "cap": {
           "description": "Most frames this job's compute location allows.",
           "minimum": 1,

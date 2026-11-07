@@ -7,6 +7,8 @@ import { FPS, FRAME_LIMITS, type ComputeTarget, type TimeModel } from '@nazar/co
  * answer (`job.sampling`) is authoritative; this is the preview shown before starting.
  */
 export interface FramePlan {
+  /** The frame count was chosen from the video length, not from a rate. */
+  auto: boolean;
   wanted: number;
   frames: number;
   cap: number;
@@ -16,11 +18,30 @@ export interface FramePlan {
   effectiveFps: number;
 }
 
-export function planFrames(durationS: number, fps: number, compute: ComputeTarget): FramePlan {
+/**
+ * Frames automatic mode asks for: about one per second of video, never fewer than the
+ * minimum (a short clip is sampled densely, not reduced to a few views) and never more than
+ * the location's automatic maximum. Mirrors `auto_frames` in packages/media/sampling.py.
+ */
+export function autoFrames(durationS: number, compute: ComputeTarget): number {
+  return Math.min(
+    FRAME_LIMITS.auto_max[compute],
+    Math.max(FRAME_LIMITS.auto_min, Math.round(durationS)),
+  );
+}
+
+/** `fps` null = automatic. */
+export function planFrames(
+  durationS: number,
+  fps: number | null,
+  compute: ComputeTarget,
+): FramePlan {
   const cap = FRAME_LIMITS.max[compute];
-  const wanted = Math.max(1, Math.round(durationS * fps));
+  const wanted =
+    fps === null ? autoFrames(durationS, compute) : Math.max(1, Math.round(durationS * fps));
   const frames = Math.min(wanted, cap);
   return {
+    auto: fps === null,
     wanted,
     frames,
     cap,

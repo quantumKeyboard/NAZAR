@@ -8,7 +8,13 @@ from fastapi.testclient import TestClient
 from test_jobs import app_client, worker_client  # noqa: F401 - fixture re-export
 from test_standard_pipeline import SAMPLE, sample_mission
 
-from nazar_contracts import MAX_FRAMES, ComputeTarget, PipelineMode
+from nazar_contracts import (
+    AUTO_MAX_FRAMES,
+    AUTO_MIN_FRAMES,
+    MAX_FRAMES,
+    ComputeTarget,
+    PipelineMode,
+)
 
 pytestmark = pytest.mark.skipif(not SAMPLE.is_file(), reason="sample video not present")
 
@@ -17,15 +23,23 @@ def create(client: TestClient, mission: str, **body: Any) -> Any:
     return client.post(f"/api/missions/{mission}/jobs", json={"pipeline": "standard", **body})
 
 
-def test_default_is_one_frame_per_second(app_client: TestClient) -> None:
+def test_default_is_automatic_and_never_starves_a_short_clip(app_client: TestClient) -> None:
     mission = sample_mission(app_client)
     job = create(app_client, mission).json()
     s = job["sampling"]
-    assert s["fps_requested"] == 1.0
-    assert s["frames"] >= 3
-    assert abs(s["fps_effective"] - 1.0) < 0.35
+    assert s["auto"] is True
+    assert s["frames"] >= AUTO_MIN_FRAMES - 2  # a window with no usable frame may be dropped
+    assert s["frames"] <= AUTO_MAX_FRAMES[ComputeTarget.LOCAL]
     assert s["clamped"] is False
     assert s["cap"] == MAX_FRAMES[ComputeTarget.LOCAL]
+
+
+def test_an_explicit_rate_is_not_automatic(app_client: TestClient) -> None:
+    mission = sample_mission(app_client)
+    s = create(app_client, mission, fps=1.0).json()["sampling"]
+    assert s["auto"] is False
+    assert s["fps_requested"] == 1.0
+    assert abs(s["fps_effective"] - 1.0) < 0.35
 
 
 def test_a_higher_rate_gives_more_frames(app_client: TestClient) -> None:

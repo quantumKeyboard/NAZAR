@@ -38,7 +38,9 @@ STAGE_PLAN: tuple[StagePlan, ...] = (
     StagePlan(
         StageName.DENSE_RECONSTRUCTION, "Fusion + Gaussian splat (gsplat); CPU: sparse", 7, False
     ),
-    StagePlan(StageName.SURFACE_PROCESSING, "Open3D screened Poisson mesh", 7, optional=True),
+    StagePlan(
+        StageName.SURFACE_PROCESSING, "Height-map solid with baked texture", 7, optional=True
+    ),
     StagePlan(StageName.ANALYSIS, "Confidence + per-model contributions", 8, optional=False),
     StagePlan(StageName.EXPORTING, "PLY / LAS / GLB / mesh / splat + report", 8, optional=False),
 )

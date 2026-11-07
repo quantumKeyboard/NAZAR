@@ -27,7 +27,7 @@ const ORDER: { key: string; title: string; model: string }[] = [
   { key: 'sensor_optimization', title: 'GPS alignment', model: 'Sim(3) fit to telemetry' },
   { key: 'dense_reconstruction', title: 'Fused point cloud', model: 'Fusion of the above' },
   { key: 'gaussian_splat', title: 'Photoreal splat', model: 'gsplat' },
-  { key: 'surface_processing', title: 'Solid surface', model: 'Open3D screened Poisson' },
+  { key: 'surface_processing', title: 'Solid textured surface', model: 'Height map + texture' },
 ];
 
 const n = (c: Contribution, key: string): number | null => {
@@ -38,6 +38,22 @@ const int = (v: number | null) => (v === null ? '?' : Math.round(v).toLocaleStri
 const pct = (v: number | null, digits = 0) => (v === null ? '?' : `${(v * 100).toFixed(digits)} %`);
 const str = (c: Contribution, key: string): string | null =>
   typeof c[key] === 'string' ? c[key] : null;
+
+/** The photographic texture, when the surface has one. */
+function textureFacts(c: Contribution): [string, string][] {
+  const tex = c.texture;
+  if (typeof tex !== 'object' || tex === null) return [];
+  const t = tex as Record<string, unknown>;
+  if (t.applied === false) {
+    return [['Texture', typeof t.reason === 'string' ? t.reason : 'not made']];
+  }
+  const size = Array.isArray(t.size) ? (t.size as unknown[]).join(' × ') : '?';
+  const coverage = typeof t.coverage === 'number' ? pct(t.coverage, 0) : '?';
+  return [
+    ['Texture', `${size} px from ${int(typeof t.views === 'number' ? t.views : null)} frames`],
+    ['Surface covered by frames', coverage],
+  ];
+}
 
 function facts(key: string, c: Contribution): { headline: string; facts: [string, string][] } {
   switch (key) {
@@ -123,7 +139,8 @@ function facts(key: string, c: Contribution): { headline: string; facts: [string
           ['Vertices', int(n(c, 'vertices'))],
           ['Triangles', int(n(c, 'triangles'))],
           ['Inferred (not seen)', pct(n(c, 'inferred_vertex_share'), 1)],
-          ['Watertight', c.watertight === true ? 'yes' : 'no'],
+          ['Closed solid', c.closed_solid === true || c.watertight === true ? 'yes' : 'no'],
+          ...textureFacts(c),
         ],
       };
     default:

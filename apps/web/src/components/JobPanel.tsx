@@ -129,7 +129,8 @@ interface Props {
   workers: WorkerPresence[];
   /** The ready video's preflight report (duration), for the frames preview. */
   report: PreflightReport | null;
-  onStart: (pipeline: PipelineMode, compute: ComputeTarget, fps: number) => Promise<void>;
+  /** `fps` null = automatic frame count. */
+  onStart: (pipeline: PipelineMode, compute: ComputeTarget, fps: number | null) => Promise<void>;
   onCancel: () => Promise<void>;
   onRetry: () => Promise<void>;
 }
@@ -150,7 +151,7 @@ export function JobPanel({
   const [busy, setBusy] = useState(false);
   const [compute, setCompute] = useState<ComputeTarget>(loadCompute);
   const [fps, setFpsState] = useState(loadFps);
-  const setFps = (next: number) => {
+  const setFps = (next: number | null) => {
     setFpsState(next);
     saveFps(next);
   };

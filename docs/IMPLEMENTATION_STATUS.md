@@ -1,8 +1,18 @@
 # Implementation status
 
-_Last updated: 2026-11-05_
+_Last updated: 2026-11-07_
 
-## Latest: **Frontend connected to the full pipeline (branch `feature/frontend-pipeline`, 2026-11-05)**
+## Latest: **A solid, textured model from a single pass (branch `feature/frontend-pipeline`, 2026-11-07) — written and unit-tested, NOT yet run end to end**
+
+Triggered by a real test: a 6.6 s portrait 1080p clip (Taj Mahal) gave only 7 frames and a lumpy Poisson mesh with vertex colours. Three changes, implemented without running the pipeline on that video:
+
+1. **Automatic frame count (the new default).** About one frame per second but never fewer than 24 (`AUTO_MIN_FRAMES`) and at most 40 local / 96 college (`AUTO_MAX_FRAMES`); a 6.6 s clip now gives 24 frames, not 7. The fps control keeps a manual mode; `POST /jobs` with no `fps` means automatic (`SamplingInfo.auto`, migration `0006`, `--fps` optional in `local_run`). Training images for the splat are shrunk to at most 1920 px on the long side (`--max-side`) so 4K footage cannot exhaust GPU memory.
+2. **Surface from a height map, not Poisson.** `apps/worker/src/nazar_worker/heightfield.py`: the fused points are binned on the ground plane, each cell keeps a high percentile of its heights, isolated spikes are removed, small holes are bridged by normalised convolution and labelled _inferred_, and the heights are smoothed with an edge-preserving filter. The grid becomes triangles and is closed into a solid block (side walls and a flat base). It runs on the CPU in the worker; Open3D Poisson remains only as a fallback when the scene cannot be a height map (too sparse, or under 25 % of the surface has points under it).
+3. **Real texture.** A top-down texture is baked from the _full-resolution_ frames: each texel is a 3D point on the surface, projected into every frame, checked for occlusion against a depth buffer of the surface, and blended (weights favour near-perpendicular, close, away-from-border views). Texel size follows the frames' own ground resolution (capped at 3072 px). The GLB carries `TEXCOORD_0`, a JPEG texture and `KHR_materials_unlit`; the viewer shows it unlit so the photograph is not re-shaded. If no texture can be made the mesh falls back to vertex colours and the report says why.
+
+Verified by unit tests only (synthetic hill with known colours: heights recovered, bridged hole labelled inferred, floater removed, mesh closed with unit normals and valid UVs, baked texture matches the ground-truth colour function, occlusion and no-camera cases, GLB round trip; media/API/web tests for automatic frames). **Not run:** the pipeline, the browser, the GPU runners, real footage. Timing of the new surface stage (forecast 20 s + 3 s/frame) is an estimate until a real run calibrates it. Known limits: unseen sides cannot be measured (the model is a relief with a flat base); facades become steep slopes and stretch in the texture; exposure differences between frames can leave faint seams; the texture uses the fused cloud's up-axis, so a scene with no ground plane may be mis-oriented.
+
+## Previous: **Frontend connected to the full pipeline (branch `feature/frontend-pipeline`, 2026-11-05)** **Frontend connected to the full pipeline (branch `feature/frontend-pipeline`, 2026-11-05)**
 
 Built: per-job frames-per-second (0.25 to 4, default 1; API samples the sharpest usable frame per time window, caps 64 local / 128 college, 422 below 3 frames); `job.estimate` events and a worker time forecast (cost model fitted to the measured run, calibrated from stored real durations, plus a pre-run `TimeModel` and model readiness advertised through the lease); live run screen (step N of 7, model, counts, elapsed, time-left range, basis); pipeline cards with forecast vs. real time and GPU peak vs. budget; per-model contributions from the report; viewer layers for the Gaussian splat (Spark 2.4.0, lazy chunk) and the vertex-coloured mesh with toggles, mesh measuring, and a sticky fixed-height viewer. Web libs (`sampling`, `estimate`, `contributions`) are unit-tested.
 

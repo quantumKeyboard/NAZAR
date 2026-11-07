@@ -21,7 +21,6 @@ from nazar_contracts.artifacts import (
 )
 from nazar_contracts.events import EventType, JobEstimateData, StageProgressData, WarningData
 from nazar_contracts.jobs import (
-    FPS_DEFAULT,
     FPS_MAX,
     FPS_MIN,
     ComputeTarget,
@@ -77,9 +76,14 @@ class StageState(_Model):
 
 
 class SamplingInfo(_Model):
-    """Which frames of the video a job uses: chosen at the requested rate, one per time
-    window (the sharpest usable frame), and lowered to the location's frame cap if needed."""
+    """Which frames of the video a job uses: chosen at the requested rate (or automatically),
+    one per time window (the sharpest usable frame), and lowered to the location's frame cap
+    if needed."""
 
+    auto: bool = Field(
+        default=False,
+        description="True when the frame count was chosen automatically from the video length.",
+    )
     fps_requested: float
     fps_effective: float = Field(description="Frames actually used per second of video.")
     frames: int = Field(ge=0)
@@ -140,11 +144,12 @@ class JobCreate(_Model):
         default=ComputeTarget.LOCAL,
         description="Run on the local GPU worker or the college GPU worker (online or bundle).",
     )
-    fps: float = Field(
-        default=FPS_DEFAULT,
+    fps: float | None = Field(
+        default=None,
         ge=FPS_MIN,
         le=FPS_MAX,
-        description="Frames per second of video to reconstruct from (standard pipeline).",
+        description="Frames per second of video to reconstruct from (standard pipeline). "
+        "Omit for automatic: the frame count is chosen from the video length.",
     )
 
 

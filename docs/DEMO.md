@@ -16,11 +16,11 @@ locally; nothing leaves the machine.
 | Step | What to do | What to point out |
 | --- | --- | --- |
 | 1 | Create a mission, upload `docs/sample/video/sample1.mp4` | Preflight: duration, usable frames, keyframes, warnings (low resolution, no telemetry) |
-| 2 | Under **Frames per second** use the slider, the number box or a preset (default **1 fps**) | "23 frames from a 23 s video"; the estimate and the **models on this worker** (green ticks) update live. Above the frame cap the app says it lowered the rate; below 3 frames it asks for a higher one |
+| 2 | Under **Frames to use** keep **Automatic (recommended)**, or switch to **Choose frames per second** (slider, number box, presets) | Automatic: "24 frames from a 6.6 s video" (about one per second, never fewer than 24); the estimate and the **models on this worker** (green ticks) update live. In manual mode, above the frame cap the app says it lowered the rate; below 3 frames it asks for a higher one |
 | 3 | **Reconstruct** | Step _N of 7_, the model that is running, counts ("frame 12 / 23", "iteration 2,000 / 4,000"), elapsed clock, **"about A–B min left"**, and the basis of that estimate |
 | 4 | Watch the pipeline cards | Each stage: forecast vs. real time, GPU memory vs. the 5.5 GB budget, and a plain reason for any skipped stage (for example no GPS telemetry) |
 | 5 | When it finishes | **What each model contributed** (masks, camera poses, depth, fusion, splat PSNR, mesh share inferred); peak GPU memory within budget |
-| 6 | Viewer | Default is the **photoreal splat**. Toggle **Solid mesh** and **Points**, **Colour by confidence**, **Measure** (relative units, since there is no GPS), **Camera path**, **Fit** |
+| 6 | Viewer | Default is the **photoreal splat**. **Solid mesh** is a closed block textured from your frames (vertex colours if no texture could be made); toggle it and **Points**, **Colour by confidence**, **Measure** (relative units, since there is no GPS), **Camera path**, **Fit** |
 | 7 | Outputs list | Download the splat PLY, mesh GLB, point cloud (PLY/LAS/GLB), camera path and report |
 
 ## Numbers from the recorded run (2026-11-05)

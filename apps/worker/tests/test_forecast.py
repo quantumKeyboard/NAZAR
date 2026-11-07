@@ -23,9 +23,11 @@ def test_default_estimate_matches_the_measured_local_run() -> None:
     assert est.stages[StageName.GEOMETRY] == pytest.approx(26, abs=4)
     assert est.stages[StageName.DEPTH_PRIORS] == pytest.approx(53, abs=6)
     assert 270 < est.stages[StageName.DENSE_RECONSTRUCTION] < 330
-    assert est.stages[StageName.SURFACE_PROCESSING] == pytest.approx(21.6, abs=4)
+    # The height-map surface + texture bake is NOT yet measured (the old Poisson step was
+    # ~22 s); this pins the current estimate until a real run calibrates it.
+    assert 40 < est.stages[StageName.SURFACE_PROCESSING] < 130
     assert est.stages[StageName.SENSOR_OPTIMIZATION] == 0  # no telemetry: skipped
-    assert 6 * 60 < est.total_s < 8 * 60
+    assert 6 * 60 < est.total_s < 9.5 * 60
     assert "RTX 4050" in est.basis
 
 

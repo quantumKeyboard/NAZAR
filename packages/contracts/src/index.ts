@@ -21,6 +21,8 @@ export const FPS = constants.fps as { min: number; max: number; default: number 
 
 /** Fewest frames a job needs, and the most each compute location allows. */
 export const FRAME_LIMITS = constants.frames as {
+  auto_min: number;
+  auto_max: Record<ComputeTarget, number>;
   min: number;
   max: Record<ComputeTarget, number>;
 };

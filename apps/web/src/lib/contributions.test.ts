@@ -24,7 +24,8 @@ const report: Record<string, Contribution> = {
     triangles: 1284857,
     vertices: 642369,
     inferred_vertex_share: 0.1359,
-    watertight: false,
+    closed_solid: true,
+    texture: { size: [2048, 1536], views: 30, coverage: 0.93 },
   },
 };
 
@@ -53,6 +54,11 @@ describe('describeContributions', () => {
     expect(by('surface_processing')?.headline).toBe(
       '1,284,857 triangles, 13.6 % of the surface inferred',
     );
+    expect(by('surface_processing')?.facts).toContainEqual(['Closed solid', 'yes']);
+    expect(by('surface_processing')?.facts).toContainEqual([
+      'Texture',
+      '2048 × 1536 px from 30 frames',
+    ]);
     expect(by('gaussian_splat')?.facts[0]).toEqual(['Held-out frames PSNR', '25.9 dB']);
   });
 

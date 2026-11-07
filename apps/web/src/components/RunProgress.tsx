@@ -92,8 +92,9 @@ export function RunProgress({ job }: { job: Job }) {
       {sampling && (
         <p className="mt-2 text-xs text-slate" data-testid="run-sampling">
           Using {sampling.frames} frames ({formatFps(sampling.fps_effective)}
+          {sampling.auto ? ', chosen automatically from the video length' : ''}
           {sampling.clamped
-            ? `, lowered from the ${formatFps(sampling.fps_requested)} you asked for by the ${String(sampling.cap)}-frame limit`
+            ? `, lowered from the ${formatFps(sampling.fps_requested)} wanted by the ${String(sampling.cap)}-frame limit`
             : ''}
           ).
         </p>

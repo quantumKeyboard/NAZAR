@@ -53,8 +53,9 @@ export const STAGE_COPY: Record<
   },
   surface_processing: {
     label: 'Solid surface',
-    detail: 'Turn the points into a mesh; surface nobody saw is labelled inferred',
-    model: 'Open3D Poisson',
+    detail:
+      'Fuse the points into a smooth, closed model and paint it from your full-resolution frames; what nobody saw is labelled inferred',
+    model: 'Height map + texture',
     optional: true,
   },
   analysis: {

@@ -24,7 +24,7 @@ from pathlib import Path
 from typing import Any
 
 from nazar_contracts import (
-    FPS_DEFAULT,
+    AUTO_MAX_FRAMES,
     FPS_MAX,
     FPS_MIN,
     MAX_FRAMES,
@@ -168,7 +168,7 @@ def run_local(
     profile: ComputeProfile,
     out: Path,
     telemetry: Path | None = None,
-    fps: float = FPS_DEFAULT,
+    fps: float | None = None,
 ) -> int:
     if not video.is_file():
         print(f"Video not found: {video}", file=sys.stderr)
@@ -202,15 +202,19 @@ def run_local(
         print(f"Video rejected: {exc.message}", file=sys.stderr)
         return 2
     print(f"  {report.analysis.frames_decoded} frames decoded ({time.monotonic() - t0:.1f} s)")
-    cap = MAX_FRAMES[ComputeTarget.COLLEGE if profile.strict else ComputeTarget.LOCAL]
+    where = ComputeTarget.COLLEGE if profile.strict else ComputeTarget.LOCAL
+    cap = MAX_FRAMES[where]
     try:
-        plan = sample_job_frames(video, report, fps, cap, out / "frames")
+        plan = sample_job_frames(
+            video, report, fps, cap, out / "frames", auto_max=AUTO_MAX_FRAMES[where]
+        )
     except MediaError as exc:
         print(f"Frames could not be sampled: {exc.message}", file=sys.stderr)
         return 2
     print(
-        f"  {len(plan.keyframes)} frames at {fps:g} fps "
-        f"(effective {plan.fps_effective:g} fps, cap {cap})"
+        f"  {len(plan.keyframes)} frames "
+        + ("(automatic) " if fps is None else f"at {fps:g} fps ")
+        + f"(effective {plan.fps_effective:g} fps, cap {cap})"
         + (f"; lowered from {plan.wanted} by the cap" if plan.clamped else "")
     )
 
@@ -377,9 +381,9 @@ def add_parser(sub: Any) -> None:
     p.add_argument(
         "--fps",
         type=float,
-        default=FPS_DEFAULT,
-        help=f"Frames per second of video to reconstruct from ({FPS_MIN:g}-{FPS_MAX:g}, "
-        f"default {FPS_DEFAULT:g}).",
+        default=None,
+        help=f"Frames per second of video to reconstruct from ({FPS_MIN:g}-{FPS_MAX:g}). "
+        "Default: automatic, about one frame per second but at least 24 frames.",
     )
     p.add_argument("--telemetry", type=Path, default=None, help="Optional DJI .SRT or .CSV.")
     p.add_argument(
@@ -389,7 +393,7 @@ def add_parser(sub: Any) -> None:
 
 def main(args: argparse.Namespace) -> int:
     out = args.out or Path("var") / "runs" / f"{args.video.stem}-{args.how}"
-    if not FPS_MIN <= args.fps <= FPS_MAX:
+    if args.fps is not None and not FPS_MIN <= args.fps <= FPS_MAX:
         print(f"--fps must be {FPS_MIN:g}-{FPS_MAX:g}.", file=sys.stderr)
         return 2
     return run_local(

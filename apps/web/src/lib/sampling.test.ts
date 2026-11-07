@@ -1,6 +1,6 @@
 import { FPS, FRAME_LIMITS } from '@nazar/contracts';
 import { describe, expect, it } from 'vitest';
-import { clampFps, formatFps, parseFps, planFrames, preRunSeconds } from './sampling';
+import { autoFrames, clampFps, formatFps, parseFps, planFrames, preRunSeconds } from './sampling';
 
 describe('planFrames', () => {
   it('one frame per second of video by default', () => {
@@ -45,5 +45,25 @@ describe('preRunSeconds', () => {
   it('applies the worker time per frame', () => {
     expect(preRunSeconds({ fixed_s: 300, per_frame_s: 3, basis: 'x' }, 40)).toBe(420);
     expect(preRunSeconds(null, 40)).toBeNull();
+  });
+});
+
+describe('automatic frame count', () => {
+  it('never starves a short clip', () => {
+    expect(autoFrames(6.6, 'local')).toBe(FRAME_LIMITS.auto_min);
+    const p = planFrames(6.6, null, 'local');
+    expect(p.auto).toBe(true);
+    expect(p.frames).toBe(FRAME_LIMITS.auto_min);
+    expect(p.effectiveFps).toBeGreaterThan(3);
+  });
+  it('follows the length of a longer clip up to the location maximum', () => {
+    expect(autoFrames(30, 'local')).toBe(30);
+    expect(autoFrames(500, 'local')).toBe(FRAME_LIMITS.auto_max.local);
+    expect(autoFrames(500, 'college')).toBe(FRAME_LIMITS.auto_max.college);
+    expect(planFrames(500, null, 'local').clamped).toBe(false);
+  });
+  it('a manual rate is not automatic', () => {
+    expect(planFrames(6.6, 1, 'local').auto).toBe(false);
+    expect(planFrames(6.6, 1, 'local').frames).toBe(7);
   });
 });

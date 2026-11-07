@@ -207,7 +207,8 @@ def sampling_info(job: JobRecord) -> SamplingInfo | None:
     if job.frame_count is None or job.fps_effective is None:
         return None
     return SamplingInfo(
-        fps_requested=job.fps,
+        auto=job.fps_auto,
+        fps_requested=job.fps_effective if job.fps_auto else job.fps,
         fps_effective=job.fps_effective,
         frames=job.frame_count,
         cap=MAX_FRAMES[ComputeTarget(job.compute)],

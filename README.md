@@ -2,7 +2,7 @@
 
 Single-pass drone video → progressively revealed 3D reconstruction.
 
-> **Status: frontend connected to the full pipeline on `feature/frontend-pipeline`.** Upload a video in the browser, pick the frames per second (default 1), and the local GPU worker runs YOLO11 + SAM 2 → Fast3R → Metric3D-v2 → fusion → Gaussian splat → Poisson mesh while the page shows the current step, the model, live counts and an estimated time left. The viewer shows the photoreal splat, the solid mesh and the points, and lists what each model contributed. See [`docs/DEMO.md`](docs/DEMO.md) for the click path and [`docs/IMPLEMENTATION_STATUS.md`](docs/IMPLEMENTATION_STATUS.md).
+> **Status: frontend connected to the full pipeline on `feature/frontend-pipeline`.** Upload a video in the browser, leave the frame count on Automatic (about one frame per second, at least 24) or choose frames per second, and the local GPU worker runs YOLO11 + SAM 2 → Fast3R → Metric3D-v2 → fusion → Gaussian splat → a closed height-map mesh textured from your full-resolution frames while the page shows the current step, the model, live counts and an estimated time left. The viewer shows the photoreal splat, the solid mesh and the points, and lists what each model contributed. See [`docs/DEMO.md`](docs/DEMO.md) for the click path and [`docs/IMPLEMENTATION_STATUS.md`](docs/IMPLEMENTATION_STATUS.md).
 
 ## Layout
 

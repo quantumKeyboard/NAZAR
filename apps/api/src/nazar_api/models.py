@@ -96,6 +96,7 @@ class JobRecord(Base):
     compute: Mapped[str] = mapped_column(String(16), default="local", server_default="local")
     # Frame sampling (standard pipeline): the rate asked for and what the video gave.
     fps: Mapped[float] = mapped_column(Float, default=1.0, server_default="1.0")
+    fps_auto: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
     frame_count: Mapped[int | None] = mapped_column(Integer, default=None)
     fps_effective: Mapped[float | None] = mapped_column(Float, default=None)
     frames_clamped: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")

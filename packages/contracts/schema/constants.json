@@ -117,6 +117,11 @@
     "min": 0.25
   },
   "frames": {
+    "auto_max": {
+      "college": 96,
+      "local": 40
+    },
+    "auto_min": 24,
     "max": {
       "college": 128,
       "local": 64
