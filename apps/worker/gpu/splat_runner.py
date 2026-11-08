@@ -165,6 +165,13 @@ def main() -> int:
     ap.add_argument("--max-gaussians", type=int, default=400_000)
     ap.add_argument("--sh-degree", type=int, default=1)
     ap.add_argument("--budget-mib", type=int, default=0)
+    ap.add_argument(
+        "--max-side",
+        type=int,
+        default=1920,
+        help="Training images are shrunk (intrinsics scaled) to at most this long side, so a "
+        "4K clip does not exhaust GPU memory; 1080p footage is used at full size.",
+    )
     args = ap.parse_args()
 
     import torch
@@ -177,6 +184,11 @@ def main() -> int:
     images, masks = [], []
     for cam in cams:
         img = cv2.imread(str(args.frames / cam["image"]), cv2.IMREAD_COLOR)
+        shrink = min(1.0, args.max_side / max(img.shape[:2]))
+        if shrink < 1.0:
+            img = cv2.resize(img, None, fx=shrink, fy=shrink, interpolation=cv2.INTER_AREA)
+            for k in ("fx", "fy", "cx", "cy"):
+                cam[k] = cam[k] * shrink
         images.append(
             torch.tensor(
                 cv2.cvtColor(img, cv2.COLOR_BGR2RGB) / 255.0, dtype=torch.float32, device="cuda"
@@ -185,6 +197,8 @@ def main() -> int:
         m = None
         if args.masks is not None and (args.masks / cam["image"].replace(".jpg", ".png")).is_file():
             mm = cv2.imread(str(args.masks / cam["image"].replace(".jpg", ".png")), 0)
+            if mm.shape[:2] != img.shape[:2]:
+                mm = cv2.resize(mm, (img.shape[1], img.shape[0]), interpolation=cv2.INTER_AREA)
             m = torch.tensor(mm < 128, dtype=torch.float32, device="cuda")[..., None]
         masks.append(m)
     c2w = torch.tensor(np.array([c["c2w"] for c in cams]), dtype=torch.float32, device="cuda")

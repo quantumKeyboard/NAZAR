@@ -6,7 +6,8 @@
     depth_priors      Metric3D-v2: metric depth + normals, compared with Fast3R per view
     sensor_opt.       Sim(3) GNSS alignment (telemetry only)
     dense             fusion of Fast3R + priors (Open3D-ready cloud), then a Gaussian splat
-    surface           Open3D screened Poisson mesh with per-vertex confidence
+    surface           height-map solid with a texture baked from the full-resolution frames
+                      (Open3D screened Poisson only as a fallback)
     analysis/export   confidence, per-model contributions, PLY/LAS/GLB/mesh/splat + report
 
 Each GPU model runs in its own process with its own environment (`gpu.py`) and, on the
@@ -50,7 +51,7 @@ from nazar_contracts import (
     WorkerLease,
 )
 from nazar_media.telemetry import track_from_json
-from nazar_worker import fast3r
+from nazar_worker import fast3r, heightfield
 from nazar_worker.fast3r import DenseCloud, Fast3rFailed, Fast3rRuntime, run_fast3r
 from nazar_worker.fusion import SOURCE_FAST3R, Fused, Priors, fuse
 from nazar_worker.georef import Alignment, align
@@ -87,7 +88,10 @@ STAGE_MODELS = {
     "depth_priors": ("nazar-worker/metric3d", "Metric3D-v2"),
     "dense_reconstruction": ("nazar-worker/fusion", "Fast3R + Metric3D-v2 fusion"),
     "gaussian_splat": ("nazar-worker/gsplat", "3D Gaussian splatting (gsplat), InstantSplat-style"),
-    "surface_processing": ("nazar-worker/open3d-poisson", "Open3D screened Poisson"),
+    "surface_processing": (
+        "nazar-worker/heightfield",
+        "Height-map fusion + texture baking (Open3D Poisson as fallback)",
+    ),
 }
 
 
@@ -344,6 +348,7 @@ class _Stage:
             raise StageFailed(f"{what} failed {where}: {exc}", retryable=True) from exc
         if done.get("peak_vram_mib") is not None:
             run.gpu_peaks[key] = int(done["peak_vram_mib"])
+            ctx.gpu(int(done["peak_vram_mib"]), int(done.get("budget_mib") or 0))
         return done
 
 
@@ -515,6 +520,7 @@ class Geometry(_Stage):
             }
             if stats.get("peak_vram_mib") is not None:
                 run.gpu_peaks["geometry"] = int(stats["peak_vram_mib"])
+                ctx.gpu(int(stats["peak_vram_mib"]), int(stats.get("budget_mib") or 0))
         run.timings["geometry_s"] = round(time.monotonic() - t0, 3)
 
     def _fast3r(self, ctx: StageContext, runtime: Fast3rRuntime) -> None:
@@ -903,7 +909,12 @@ class Densify(_Stage):
             ply,
         )
         poses = [
-            {"keyframe": i, "frame_index": run.keyframe_index[i], "position": c.round(5).tolist()}
+            {
+                "keyframe": i,
+                "frame_index": run.keyframe_index[i],
+                "time_s": round(run.keyframe_times[i], 4),
+                "position": c.round(5).tolist(),
+            }
             for i, c in zip(run.placed(), centers, strict=True)
         ]
         cam_source = (
@@ -976,31 +987,7 @@ class Densify(_Stage):
             run.contributions["gaussian_splat"] = {"applied": False, "reason": missing}
             ctx.warn("gaussian_splat_unavailable", missing, "info")
             return
-        tf = dense.transform
-        data = np.load(dense.npz)
-        width_in, height_in = (float(a) for a in data["input_size"])
-        views = [int(k) for k in data["views"]]
-        cams = []
-        for v, kf in enumerate(views):
-            factor, left, top = (float(a) for a in data["crop"][v])
-            c2w = np.eye(4)
-            c2w[:3, :3] = tf.rotation @ data["c2w"][v][:3, :3]
-            c2w[:3, 3] = tf.points(data["c2w"][v][:3, 3][None])[0]
-            h, w = run.images[kf].shape[:2]
-            f = float(data["focal"][v]) / factor
-            cams.append(
-                {
-                    "image": f"{kf:04d}.jpg",
-                    "c2w": c2w.round(8).tolist(),
-                    "fx": f,
-                    "fy": f,
-                    "cx": (width_in / 2 + left) / factor,
-                    "cy": (height_in / 2 + top) / factor,
-                    "width": w,
-                    "height": h,
-                    "split": "test" if len(views) >= 8 and v % 8 == 4 else "train",
-                }
-            )
+        views, cams = _camera_records(run)
         work = run.work("splat")
         (work / "cameras.json").write_text(json.dumps({"cameras": cams}), encoding="utf-8")
         np.savez(work / "init.npz", points=fused.points.astype(np.float32), colors=fused.colors)
@@ -1095,9 +1082,52 @@ class Densify(_Stage):
         )
 
 
+def _camera_records(run: _Run) -> tuple[list[int], list[dict[str, Any]]]:
+    """Fast3R's camera for every placed keyframe, in the NAZAR world frame (OpenCV camera axes:
+    x right, y down, z forward), with intrinsics in pixels of the full-resolution keyframe.
+    Used by the Gaussian splat and by the surface texture."""
+    dense = run.dense
+    assert dense is not None and dense.npz is not None and dense.transform is not None
+    tf = dense.transform
+    data = np.load(dense.npz)
+    width_in, height_in = (float(a) for a in data["input_size"])
+    views = [int(k) for k in data["views"]]
+    cams: list[dict[str, Any]] = []
+    for v, kf in enumerate(views):
+        factor, left, top = (float(a) for a in data["crop"][v])
+        c2w = np.eye(4)
+        c2w[:3, :3] = tf.rotation @ data["c2w"][v][:3, :3]
+        c2w[:3, 3] = tf.points(data["c2w"][v][:3, 3][None])[0]
+        h, w = run.images[kf].shape[:2]
+        f = float(data["focal"][v]) / factor
+        cams.append(
+            {
+                "image": f"{kf:04d}.jpg",
+                "c2w": c2w.round(8).tolist(),
+                "fx": f,
+                "fy": f,
+                "cx": (width_in / 2 + left) / factor,
+                "cy": (height_in / 2 + top) / factor,
+                "width": w,
+                "height": h,
+                "split": "test" if len(views) >= 8 and v % 8 == 4 else "train",
+            }
+        )
+    return views, cams
+
+
 class Surface(_Stage):
-    """Open3D screened Poisson on the fused cloud: a coloured mesh whose vertices carry the
-    confidence class of the data under them (inferred where the surface bridges a gap)."""
+    """The solid, textured model.
+
+    A single forward pass sees the ground and the tops of things from one side, so the scene is
+    a height map. The fused points are binned into a grid whose cells keep a robust top height
+    (outliers and noise are removed, small holes are bridged and labelled inferred), the grid is
+    closed into a solid block (walls and a base), and a top-down texture is baked from the
+    full-resolution video frames: every texel is projected into the frames that see it best.
+    That runs on the CPU in this process. Only when the scene cannot be a height map (too
+    sparse, or mostly unobserved) does the stage fall back to Open3D screened Poisson in the
+    GPU environment, which gives per-vertex colours but no texture.
+    """
 
     def _missing(self) -> str | None:
         return self.run_state.gpu.missing()
@@ -1109,14 +1139,170 @@ class Surface(_Stage):
                 "Skipped: a sparse cloud cannot support a meaningful surface; it would be mostly "
                 "invented.",
             )
-        return self._skipped("surface_processing", self._missing_or_skip(self._missing()))
+        return None
 
     def run(self, ctx: StageContext) -> None:
         run = self.run_state
-        self._require(self._missing(), "The surface mesh cannot be built")
+        assert run.fused is not None and run.final is not None
+        t0 = time.monotonic()
+        try:
+            self._height_map(ctx)
+        except heightfield.HeightfieldError as exc:
+            reason = str(exc)
+            ctx.warn(
+                "surface_heightfield_unavailable",
+                f"A height-map surface was not possible ({reason}); trying screened Poisson.",
+                "warning",
+            )
+            missing = self._missing()
+            if missing:
+                if run.profile.strict:
+                    raise StageFailed(
+                        f"No surface could be built: the height map failed ({reason}) and the "
+                        f"Poisson fallback cannot run: {missing}"
+                    ) from exc
+                run.contributions["surface_processing"] = {
+                    "applied": False,
+                    "reason": f"The height-map surface failed ({reason}) and the Poisson "
+                    f"fallback is unavailable: {missing}",
+                }
+                return
+            self._poisson(ctx, f"The height-map surface failed ({reason}).")
+        run.timings["surface_processing_s"] = round(time.monotonic() - t0, 3)
+
+    # -- height map + texture ---------------------------------------------------------------
+    def _height_map(self, ctx: StageContext) -> None:
+        run = self.run_state
         fused, final = run.fused, run.final
         assert fused is not None and final is not None
-        t0 = time.monotonic()
+        n = len(fused.points)
+        ctx.progress(f"Height map: fusing {n:,} points into a grid", None, None, None)
+        cameras: list[heightfield.Camera] = []
+        if run.dense is not None and run.dense.npz is not None and run.dense.transform is not None:
+            views, records = _camera_records(run)
+            for kf, rec in zip(views, records, strict=True):
+                cameras.append(
+                    heightfield.Camera(
+                        c2w=np.asarray(rec["c2w"], dtype=np.float64),
+                        fx=float(rec["fx"]),
+                        fy=float(rec["fy"]),
+                        cx=float(rec["cx"]),
+                        cy=float(rec["cy"]),
+                        image=run.images[kf],
+                    )
+                )
+
+        def texture_progress(done: int, total: int) -> None:
+            ctx.check_cancel()
+            ctx.progress(
+                f"Texture: projecting {len(cameras)} full-resolution frames onto the surface",
+                done,
+                total,
+                "texture rows",
+            )
+
+        mesh, notes = heightfield.build_textured_heightfield(
+            fused.points, fused.colors, final[2], cameras or None, on_progress=texture_progress
+        )
+        texture_bytes: bytes | None = None
+        if mesh.texture is not None:
+            ok, jpg = cv2.imencode(".jpg", mesh.texture[..., ::-1], [cv2.IMWRITE_JPEG_QUALITY, 93])
+            if not ok:
+                raise StageFailed("The surface texture could not be encoded.")
+            texture_bytes = jpg.tobytes()
+        mpu = run.frame().metres_per_unit
+        k = mpu or 1.0
+        grid_notes, tex_notes = notes["grid"], notes.get("texture")
+        glb = write_mesh_glb(
+            mesh.vertices.astype(np.float64) * k,
+            mesh.faces,
+            mesh.colors,
+            mesh.normals,
+            uv=mesh.uv if texture_bytes else None,
+            texture=texture_bytes,
+            texture_mime="image/jpeg",
+            extras={
+                "units": "metre" if mpu else "unitless",
+                "scale_status": run.frame().scale_status.value,
+                "frame": "local_reconstruction, +Y up",
+                "method": "height-map (DSM) fusion"
+                + (" with a texture baked from the video frames" if texture_bytes else ""),
+                "closed_solid": mesh.closed,
+                "note": "Top-down surface of what the video saw; see the processing report.",
+            },
+        )
+        ctx.publish(
+            _declare(
+                run,
+                "surface-mesh",
+                ArtifactKind.MESH,
+                "model/gltf-binary",
+                glb,
+                xyz=mesh.vertices.astype(np.float64),
+                frames=_frames(run, run.placed()),
+                final=True,
+                spatial=True,
+                stage="surface_processing",
+            ),
+            glb,
+        )
+        top = mesh.labels[: int(mesh.stats["surface_vertices"])]
+        total = max(1, len(top))
+        classes = {
+            "observed": int((top == OBSERVED).sum()),
+            "estimated": int((top == ESTIMATED).sum()),
+            "inferred": int((top == heightfield.INFERRED).sum()),
+        }
+        limitations = [
+            "Only what the video saw is on the surface: a single pass sees the top and the "
+            "filmed side, never the far side, so the model is a relief with a flat base, not a "
+            "full 360-degree object.",
+            "Vertical faces (walls, facades) become steep slopes in a height map and are "
+            "stretched in the texture.",
+        ]
+        if texture_bytes is None:
+            limitations.append(
+                f"No texture: {notes.get('texture_error', 'unavailable')} The surface carries "
+                "per-vertex colour from the fused points instead."
+            )
+        else:
+            limitations.append(
+                "Each texel is blended from the frames that see it best; exposure differences "
+                "between frames can still leave faint seams."
+            )
+        run.contributions["surface_processing"] = {
+            "applied": True,
+            "method": "height-map (DSM) fusion, solid block, planar texture",
+            "what": "A smooth, closed, textured surface: points are fused into a height map "
+            "(outliers removed, small holes bridged and labelled inferred), closed into a solid "
+            "with side walls and a base, and textured from the full-resolution frames.",
+            "grid": grid_notes,
+            "texture": tex_notes
+            if tex_notes
+            else {"applied": False, "reason": notes.get("texture_error")},
+            "mesh": notes["mesh"],
+            "closed_solid": mesh.closed,
+            "vertices": len(mesh.vertices),
+            "triangles": len(mesh.faces),
+            "vertex_classes": classes,
+            "inferred_vertex_share": round(classes["inferred"] / total, 4),
+            "units": "metre" if mpu else "unitless",
+            "limitations": limitations,
+        }
+        tail = ", textured" if texture_bytes else ", vertex-coloured (no texture)"
+        ctx.progress(
+            f"Surface: {len(mesh.vertices):,} vertices, {len(mesh.faces):,} triangles{tail}, "
+            f"{100 * classes['inferred'] / total:.1f}% inferred",
+            None,
+            None,
+            None,
+        )
+
+    # -- fallback -------------------------------------------------------------------------------
+    def _poisson(self, ctx: StageContext, why: str) -> None:
+        run = self.run_state
+        fused, final = run.fused, run.final
+        assert fused is not None and final is not None
         work = run.work("surface")
         np.savez(
             work / "cloud.npz",
@@ -1185,12 +1371,16 @@ class Surface(_Stage):
         total = max(1, sum(classes.values()))
         run.contributions["surface_processing"] = {
             "applied": True,
-            "what": "A solid coloured triangle mesh. Normals come from Metric3D where available "
-            "and otherwise face the camera that saw each point; Poisson surface not supported "
-            "by any point is trimmed, and surface bridging gaps is labelled inferred.",
+            "method": "screened Poisson (fallback)",
+            "what": "A coloured triangle mesh from screened Poisson on the fused cloud; surface "
+            "not supported by any point is trimmed, and surface bridging gaps is labelled "
+            "inferred. " + why,
             **{k2: v for k2, v in done.items() if k2 not in ("event", "timings")},
             "inferred_vertex_share": round(classes["inferred"] / total, 4),
             "units": "metre" if mpu else "unitless",
+            "limitations": [
+                "Poisson turns noise in the point cloud into lumps and has no texture.",
+            ],
         }
         ctx.progress(
             f"Mesh: {done['vertices']:,} vertices, {done['triangles']:,} triangles, "
@@ -1199,7 +1389,6 @@ class Surface(_Stage):
             None,
             None,
         )
-        run.timings["surface_processing_s"] = round(time.monotonic() - t0, 3)
 
 
 def _statistical_inliers(points: npt.NDArray[np.float64], k: int = 8, sigma: float = 2.5) -> Any:

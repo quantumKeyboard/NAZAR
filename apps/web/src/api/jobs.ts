@@ -6,8 +6,17 @@ export const jobs = {
     request<Job[]>('GET', `/api/missions/${missionId}/jobs`, undefined, signal),
   get: (id: string, signal?: AbortSignal) =>
     request<Job>('GET', `/api/jobs/${id}`, undefined, signal),
-  create: (missionId: string, pipeline: PipelineMode, compute: ComputeTarget = 'local') =>
-    request<Job>('POST', `/api/missions/${missionId}/jobs`, { pipeline, compute }),
+  create: (
+    missionId: string,
+    pipeline: PipelineMode,
+    compute: ComputeTarget = 'local',
+    fps?: number,
+  ) =>
+    request<Job>('POST', `/api/missions/${missionId}/jobs`, {
+      pipeline,
+      compute,
+      ...(fps === undefined ? {} : { fps }),
+    }),
   events: (id: string, after: number) =>
     request<JobEvent[]>('GET', `/api/jobs/${id}/events?after=${String(after)}`),
   cancel: (id: string) => request<Job>('POST', `/api/jobs/${id}/cancel`),

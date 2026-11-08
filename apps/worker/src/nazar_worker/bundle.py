@@ -35,6 +35,8 @@ from nazar_contracts import (
     WorkerLease,
 )
 from nazar_worker.client import WorkerClient
+from nazar_worker.forecast import Forecast
+from nazar_worker.profile import for_location
 from nazar_worker.runner import JobRun, adapters_for, geometry_backend
 
 BUNDLE_FORMAT = "nazar.mission-bundle/1"
@@ -210,7 +212,12 @@ def run_bundle(bundle: Path, out: Path, worker_id: str, step_s: float = 0.0) -> 
     with BundleClient(bundle, out) as client:
         lease = client.lease
         adapters = adapters_for(lease.pipeline, step_s, client.location)
-        run = JobRun(client, lease, adapters, heartbeat_s=3600)
+        forecast = (
+            Forecast.for_worker(for_location(client.location))
+            if lease.pipeline is PipelineMode.STANDARD
+            else None
+        )
+        run = JobRun(client, lease, adapters, heartbeat_s=3600, forecast=forecast)
         outcome = run.execute()
         client.finish(outcome, worker_id)
     return outcome

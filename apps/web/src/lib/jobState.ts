@@ -51,10 +51,19 @@ export function applyEvent(job: Job, event: JobEvent): ApplyResult {
         warnings: [],
         error: null,
         retryable: false,
+        estimate: null,
       };
       break;
+    case 'job.estimate':
+      next = { ...next, estimate: event.data };
+      break;
     case 'stage.started':
-      if (event.stage) next.stages = setStage(next, { stage: event.stage, state: 'running' });
+      if (event.stage)
+        next.stages = setStage(next, {
+          stage: event.stage,
+          state: 'running',
+          started_at: event.ts,
+        });
       break;
     case 'stage.progress':
       if (event.stage) {
@@ -65,12 +74,17 @@ export function applyEvent(job: Job, event: JobEvent): ApplyResult {
       }
       break;
     case 'stage.completed':
-      if (event.stage)
+      if (event.stage) {
+        const stage = event.stage;
         next.stages = setStage(next, {
-          stage: event.stage,
+          stage,
           state: 'completed',
           duration_s: event.data.duration_s,
+          peak_vram_mib: event.data.peak_vram_mib ?? null,
+          budget_mib: event.data.budget_mib ?? null,
+          started_at: job.stages.find((s) => s.stage === stage)?.started_at ?? null,
         });
+      }
       break;
     case 'stage.skipped':
       if (event.stage)
@@ -114,4 +128,14 @@ export function displayCloud(job: Job | null): ArtifactManifest | null {
     if (found) return found;
   }
   return null;
+}
+
+/** The solid surface mesh (GLB), when the job produced one. */
+export function displayMesh(job: Job | null): ArtifactManifest | null {
+  return job?.artifacts.find((a) => a.kind === 'mesh') ?? null;
+}
+
+/** The photoreal Gaussian splat (PLY), when the job produced one. */
+export function displaySplat(job: Job | null): ArtifactManifest | null {
+  return job?.artifacts.find((a) => a.kind === 'gaussian_scene') ?? null;
 }

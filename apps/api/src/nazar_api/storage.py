@@ -37,5 +37,10 @@ def sha256_file(path: Path, block: int = 1 << 20) -> str:
     return digest.hexdigest()
 
 
+def job_frames_dir(settings: Settings, job_id: str) -> Path:
+    """The frames a job was sampled to (`preflight.json` + `keyframes/NNNN.jpg`)."""
+    return settings.storage_path / "jobs" / job_id / "frames"
+
+
 def artifact_path(settings: Settings, job_id: str, artifact_id: str) -> Path:
     return settings.storage_path / "jobs" / job_id / "artifacts" / artifact_id

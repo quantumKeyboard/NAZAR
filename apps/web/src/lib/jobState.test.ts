@@ -69,7 +69,12 @@ describe('applyEvent', () => {
       type: 'stage.completed',
       data: { duration_s: 1.5 },
     });
-    expect(j.stages[0]).toEqual({ stage: 'preprocessing', state: 'completed', duration_s: 1.5 });
+    expect(j.stages[0]).toMatchObject({
+      stage: 'preprocessing',
+      state: 'completed',
+      duration_s: 1.5,
+      started_at: TS,
+    });
     expect(j.last_seq).toBe(5);
   });
 
@@ -108,6 +113,46 @@ describe('applyEvent', () => {
     expect(displayCloud(j)?.kind).toBe('point_cloud');
   });
 
+  it('keeps the worker estimate, stage start time and GPU peak', () => {
+    let j = apply(job(), {
+      ...base,
+      seq: 3,
+      status: 'queued',
+      type: 'job.estimate',
+      data: { frames: 22, basis: 'test', stages: { geometry: 26 }, total_s: 26 },
+    });
+    expect(j.estimate?.total_s).toBe(26);
+    j = apply(j, {
+      ...base,
+      seq: 4,
+      status: 'geometry',
+      stage: 'geometry',
+      type: 'stage.started',
+    });
+    j = apply(j, {
+      ...base,
+      seq: 5,
+      status: 'geometry',
+      stage: 'geometry',
+      type: 'stage.completed',
+      data: { duration_s: 25, peak_vram_mib: 4769, budget_mib: 5632 },
+    });
+    expect(j.stages.find((x) => x.stage === 'geometry')).toMatchObject({
+      state: 'completed',
+      peak_vram_mib: 4769,
+      budget_mib: 5632,
+      started_at: TS,
+    });
+    j = apply(j, {
+      ...base,
+      seq: 6,
+      status: 'queued',
+      type: 'job.queued',
+      data: { attempt: 2, reason: 'Retry requested.' },
+    });
+    expect(j.estimate).toBeNull();
+  });
+
   it('marks the running stage failed and a retry starts a clean attempt', () => {
     let j = apply(job(), {
       ...base,
@@ -123,7 +168,10 @@ describe('applyEvent', () => {
       type: 'job.failed',
       data: { reason: 'boom', retryable: true },
     });
-    expect(j.stages[1]).toMatchObject({ state: 'failed', reason: 'boom' });
+    expect(j.stages.find((x) => x.stage === 'geometry')).toMatchObject({
+      state: 'failed',
+      reason: 'boom',
+    });
     expect(j).toMatchObject({ status: 'failed', error: 'boom', retryable: true });
     j = apply(j, {
       ...base,

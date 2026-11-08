@@ -1,10 +1,12 @@
-import type {
-  ArtifactKind,
-  ArtifactManifest,
-  ComputeTarget,
-  Job,
-  PipelineMode,
-  WorkerPresence,
+import {
+  FPS,
+  type ArtifactKind,
+  type ArtifactManifest,
+  type ComputeTarget,
+  type Job,
+  type PipelineMode,
+  type PreflightReport,
+  type WorkerPresence,
 } from '@nazar/contracts';
 import { useEffect, useRef, useState } from 'react';
 import { jobs } from '../api/jobs';
@@ -17,10 +19,15 @@ import {
   type CompletionFeedback,
 } from '../lib/completion';
 import { COMPUTE_LABEL, loadCompute, presenceText, saveCompute } from '../lib/compute';
+import { loadFps, saveFps } from '../lib/fpsPreference';
+import { planFrames } from '../lib/sampling';
 import { isTerminal } from '../lib/jobState';
 import { jobMethod, METHOD_TAG } from '../lib/provenance';
 import type { StreamState } from '../lib/jobStream';
+import { Contributions } from './Contributions';
 import { STAGE_COPY } from './PipelinePlan';
+import { RunProgress } from './RunProgress';
+import { RunSetup } from './RunSetup';
 import { Button, Card, Tag } from './ui';
 
 const KIND_TEXT: Record<ArtifactKind, string> = {
@@ -30,8 +37,8 @@ const KIND_TEXT: Record<ArtifactKind, string> = {
   camera_trajectory: 'Camera path',
   depth_maps: 'Depth maps',
   dynamic_masks: 'Dynamic masks',
-  gaussian_scene: 'Gaussian scene',
-  mesh: 'Mesh',
+  gaussian_scene: 'Photoreal Gaussian splat (PLY)',
+  mesh: 'Solid surface mesh (GLB)',
   report: 'Processing report',
   export: 'Export',
 };
@@ -120,7 +127,10 @@ interface Props {
   error: string | null;
   /** Presence of the local and college workers (from readiness). */
   workers: WorkerPresence[];
-  onStart: (pipeline: PipelineMode, compute: ComputeTarget) => Promise<void>;
+  /** The ready video's preflight report (duration), for the frames preview. */
+  report: PreflightReport | null;
+  /** `fps` null = automatic frame count. */
+  onStart: (pipeline: PipelineMode, compute: ComputeTarget, fps: number | null) => Promise<void>;
   onCancel: () => Promise<void>;
   onRetry: () => Promise<void>;
 }
@@ -133,12 +143,18 @@ export function JobPanel({
   stream,
   error,
   workers,
+  report,
   onStart,
   onCancel,
   onRetry,
 }: Props) {
   const [busy, setBusy] = useState(false);
   const [compute, setCompute] = useState<ComputeTarget>(loadCompute);
+  const [fps, setFpsState] = useState(loadFps);
+  const setFps = (next: number | null) => {
+    setFpsState(next);
+    saveFps(next);
+  };
   const [prefs, setPrefs] = useState(loadPrefs);
   const [feedback, setFeedback] = useState<CompletionFeedback | null>(null);
   const watched = useRef<string | null>(null);
@@ -171,6 +187,7 @@ export function JobPanel({
     savePrefs(next);
   };
 
+  const plan = report ? planFrames(report.probe.duration_s, fps, compute) : null;
   const finished = job ? isTerminal(job) : true;
   const showStart = loaded && canStart && finished;
   const outputs = job?.status === 'completed' ? job.artifacts : [];
@@ -207,6 +224,7 @@ export function JobPanel({
           {statusText(job)}
         </p>
       )}
+      {job && job.pipeline === 'standard' && <RunProgress job={job} />}
       {job?.pipeline === 'test' && (
         <p className="mt-2 text-sm text-slate">
           The test pipeline checks the job, event and artifact plumbing with a fixed synthetic
@@ -226,6 +244,8 @@ export function JobPanel({
           ))}
         </ul>
       )}
+
+      {job?.status === 'completed' && job.pipeline === 'standard' && <Contributions job={job} />}
 
       {outputs.length > 0 && (
         <div className="mt-6">
@@ -282,13 +302,31 @@ export function JobPanel({
         </fieldset>
       )}
 
+      {showStart && (
+        <RunSetup
+          compute={compute}
+          presence={workers.find((w) => w.location === compute)}
+          report={report}
+          fps={fps}
+          onFps={setFps}
+        />
+      )}
+
       <div className="mt-6 flex flex-wrap gap-3">
         {showStart && (
           <>
-            <Button disabled={busy} onClick={act(() => onStart('standard', compute))}>
+            <Button
+              disabled={busy || (plan?.tooFew ?? false)}
+              onClick={act(() => onStart('standard', compute, fps))}
+              data-testid="reconstruct"
+            >
               Reconstruct
             </Button>
-            <Button variant="ghost" disabled={busy} onClick={act(() => onStart('test', compute))}>
+            <Button
+              variant="ghost"
+              disabled={busy}
+              onClick={act(() => onStart('test', compute, FPS.default))}
+            >
               Run test pipeline
             </Button>
           </>
@@ -306,9 +344,9 @@ export function JobPanel({
       </div>
       {showStart && (
         <p className="mt-3 text-sm text-slate">
-          Reconstruct uses Fast3R (learned dense geometry) when the worker has a GPU set up for it,
-          and otherwise the CPU baseline (classical structure-from-motion, sparse). Either way the
-          result is in a local frame with unknown scale, and the job says which method ran.
+          Reconstruct runs every model the worker has: moving-object masks, Fast3R geometry,
+          Metric3D depth, a Gaussian splat and a solid mesh, and tells you what each one added. The
+          result is in a local frame with unknown scale unless GPS telemetry is attached.
         </p>
       )}
       {!canStart && !job && loaded && (

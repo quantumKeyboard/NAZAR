@@ -2,7 +2,7 @@
 
 Single-pass drone video → progressively revealed 3D reconstruction.
 
-> **Status: full model pipeline on `feature/full-pipeline`.** Video in → YOLO11 + SAM 2 masks → Fast3R poses and points → Metric3D-v2 depth and normals → fused cloud → Gaussian splat → Poisson mesh, each model's contribution reported. Runs within 6 GB on a laptop (`--how local`) or on the college GPU (`--how clg`); try `python scripts/test_full_pipeline.py --video <clip> --how local`. The web viewer shows points and cameras; mesh and splat are downloads for now. See [`docs/IMPLEMENTATION_STATUS.md`](docs/IMPLEMENTATION_STATUS.md).
+> **Status: frontend connected to the full pipeline on `feature/frontend-pipeline`.** Upload a video in the browser, leave the frame count on Automatic (about one frame per second, at least 24) or choose frames per second, and the local GPU worker runs YOLO11 + SAM 2 → Fast3R → Metric3D-v2 → fusion → Gaussian splat → a closed height-map mesh textured from your full-resolution frames while the page shows the current step, the model, live counts and an estimated time left. The viewer shows the photoreal splat, the solid mesh and the points, and lists what each model contributed. See [`docs/DEMO.md`](docs/DEMO.md) for the click path and [`docs/IMPLEMENTATION_STATUS.md`](docs/IMPLEMENTATION_STATUS.md).
 
 ## Layout
 
@@ -48,6 +48,6 @@ uv run --package nazar-worker nazar-worker doctor   # read-only GPU/disk/toolcha
 
 - Source documents (unchanged): [project brief](docs/Single_Pass_Drone_3D_Reconstruction_Detailed_Project_Documentation.md), [design guide](docs/DESIGN.md), [SyncVDI guide](docs/SyncAI-VDI%20User%20Guide.pdf), [build prompt](docs/Claude_Prompt_Single_Pass_Drone_3D_Reconstruction.md), sample videos in `docs/sample/video/`
 - [Full Pipeline Completion Roadmap](docs/pipeline-completion/README.md) — step-by-step guides for surface meshing (Open3D), depth priors (Metric3D-v2), dynamic masks (YOLO+SAM2) and Gaussian splatting
-- [Implementation status](docs/IMPLEMENTATION_STATUS.md) · [Environment setup](docs/ENVIRONMENT_SETUP.md)
+- [Demo guide](docs/DEMO.md) · [Implementation status](docs/IMPLEMENTATION_STATUS.md) · [Environment setup](docs/ENVIRONMENT_SETUP.md)
 - [Architecture](docs/architecture/overview.md) · [Testing](docs/testing/README.md) · [Research](docs/research/README.md)
 - Decisions: [ADR-0001 tooling](docs/decisions/ADR-0001-monorepo-tooling.md) · [ADR-0002 local-first infra](docs/decisions/ADR-0002-local-first-infrastructure.md) · [ADR-0003 pull-based GPU worker](docs/decisions/ADR-0003-pull-based-gpu-worker.md) · [ADR-0004 isolated model envs](docs/decisions/ADR-0004-isolated-model-environments.md) · [ADR-0005 design system & fonts](docs/decisions/ADR-0005-design-system-fonts.md)

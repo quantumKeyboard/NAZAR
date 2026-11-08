@@ -24,10 +24,18 @@ from nazar_api.jobs import (
     expire_leases,
     lease_next,
     next_revision,
+    sampling_info,
     to_manifest,
 )
 from nazar_api.models import ArtifactRecord, AssetRecord, JobRecord, utcnow
-from nazar_api.storage import PREFLIGHT_DIR, artifact_path, asset_dir, sha256_file
+from nazar_api.settings import Settings
+from nazar_api.storage import (
+    PREFLIGHT_DIR,
+    artifact_path,
+    asset_dir,
+    job_frames_dir,
+    sha256_file,
+)
 from nazar_contracts import (
     TERMINAL_STATUSES,
     ArtifactCreate,
@@ -101,6 +109,10 @@ def lease(
 ) -> WorkerLease | Response:
     if body.geometry is not None:
         request.app.state.worker_geometry[body.location] = body.geometry
+    if body.models is not None:
+        request.app.state.worker_models[body.location] = body.models
+    if body.time_model is not None:
+        request.app.state.worker_time_model[body.location] = body.time_model
     got = lease_next(
         db, body.worker_id, body.modes, settings.worker_lease_seconds, body.job_id, body.location
     )
@@ -110,7 +122,7 @@ def lease(
     video = db.get(AssetRecord, job.video_asset_id)
     if video is None or video.sha256 is None:
         raise HTTPException(status.HTTP_409_CONFLICT, "The job's video is no longer available.")
-    keyframes = asset_dir(settings, video.mission_id, video.id) / PREFLIGHT_DIR / "keyframes"
+    keyframes = _frames_root(settings, db, job) / "keyframes"
     count = len(list(keyframes.glob("*.jpg"))) if keyframes.is_dir() else 0
     assert job.lease_expires_at is not None
     return WorkerLease(
@@ -122,6 +134,7 @@ def lease(
         lease_expires_at=job.lease_expires_at,
         video_asset_id=video.id,
         keyframe_count=count,
+        sampling=sampling_info(job),
         video_sha256=video.sha256,
         telemetry_asset_id=job.telemetry_asset_id,
     )
@@ -183,12 +196,12 @@ def post_events(body: WorkerEventBatch, job: LeasedJob, db: DbDep) -> WorkerEven
 
 @router.get("/jobs/{job_id}/inputs/preflight")
 def input_preflight(job: LeasedJob, db: DbDep, settings: SettingsDep) -> FileResponse:
-    return FileResponse(_input_dir(db, settings, job) / PREFLIGHT_DIR / "preflight.json")
+    return FileResponse(_frames_root(settings, db, job) / "preflight.json")
 
 
 @router.get("/jobs/{job_id}/inputs/keyframes/{number}.jpg")
 def input_keyframe(number: int, job: LeasedJob, db: DbDep, settings: SettingsDep) -> FileResponse:
-    path = _input_dir(db, settings, job) / PREFLIGHT_DIR / "keyframes" / f"{number:04d}.jpg"
+    path = _frames_root(settings, db, job) / "keyframes" / f"{number:04d}.jpg"
     if not 1 <= number <= 9999 or not path.is_file():
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Keyframe not found.")
     return FileResponse(path, media_type="image/jpeg")
@@ -209,6 +222,15 @@ def input_video(job: LeasedJob, db: DbDep, settings: SettingsDep) -> FileRespons
     video = db.get(AssetRecord, job.video_asset_id)
     assert video is not None
     return FileResponse(_input_dir(db, settings, job) / video.stored_name)
+
+
+def _frames_root(settings: Settings, db: Session, job: JobRecord) -> Path:
+    """The job's own sampled frames when it has them, else the upload's preflight keyframes
+    (test pipeline, and jobs created before frame sampling existed)."""
+    own = job_frames_dir(settings, job.id)
+    if (own / "preflight.json").is_file():
+        return own
+    return _input_dir(db, settings, job) / PREFLIGHT_DIR
 
 
 def _input_dir(db: Session, settings: SettingsDep, job: JobRecord) -> Path:

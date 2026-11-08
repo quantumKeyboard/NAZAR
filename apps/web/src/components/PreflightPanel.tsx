@@ -6,7 +6,13 @@ import { Card, Tag } from './ui';
 
 const SEVERITY_ORDER = { blocking: 0, warning: 1, info: 2 } as const;
 const SEVERITY_TEXT = { blocking: 'Blocking', warning: 'Warning', info: 'Note' } as const;
-const REASON_TEXT = { start: 'start', novelty: 'new view', max_gap: 'time gap', end: 'end' };
+const REASON_TEXT = {
+  start: 'start',
+  novelty: 'new view',
+  max_gap: 'time gap',
+  end: 'end',
+  sampled: 'sampled',
+};
 
 function fmtFps(value: number | null) {
   return value ? `${value.toFixed(2)} fps` : 'unknown';

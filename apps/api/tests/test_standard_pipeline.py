@@ -3,6 +3,7 @@ real worker runner in-process. The CPU baseline always runs; the GPU pipeline (F
 other models) runs only where its runtime is installed (`var/gpu` or NAZAR_*_PYTHON), otherwise
 it is skipped."""
 
+import shutil
 from pathlib import Path
 from typing import Any
 
@@ -43,7 +44,10 @@ def sample_mission(client: TestClient) -> str:
         )
         db.add(row)
         db.commit()
-        folder = asset_dir(settings, mission["id"], row.id) / PREFLIGHT_DIR
+        root = asset_dir(settings, mission["id"], row.id)
+        folder = root / PREFLIGHT_DIR
+    root.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(SAMPLE, root / "source.mp4")  # jobs sample their frames from the video
     run_preflight(SAMPLE, folder, asset_id=row.id, source_sha256="b" * 64, max_duration_s=600)
     return str(mission["id"])
 

@@ -352,17 +352,14 @@ def test_cancel_queued_job_is_immediate_and_running_job_waits_for_worker(
     assert retried["status"] == "queued" and retried["attempt"] == 2
 
 
-def test_standard_pipeline_fails_honestly_on_unusable_input(app_client: TestClient) -> None:
-    # The fixture keyframes are not real JPEGs: the baseline must stop with a plain reason
-    # and publish nothing, rather than produce geometry from nothing.
-    job = start_job(app_client, ready_mission(app_client), pipeline="standard")
-    run_loop(worker_client(app_client), "w1", [PipelineMode.STANDARD], once=True)
-    snap = app_client.get(f"/api/jobs/{job['id']}").json()
-    assert snap["status"] == "failed"
-    assert snap["retryable"] is False
-    assert snap["error"] == "Keyframe 1 could not be decoded."
-    assert snap["artifacts"] == []
-    assert app_client.post(f"/api/jobs/{job['id']}/retry").status_code == 409
+def test_standard_job_is_refused_when_its_frames_cannot_be_sampled(app_client: TestClient) -> None:
+    # The fixture's video is a stub: the frames cannot be read, so no job is created and the
+    # reason is plain, instead of a job that queues and fails later on the GPU.
+    mission = ready_mission(app_client)
+    response = app_client.post(f"/api/missions/{mission}/jobs", json={"pipeline": "standard"})
+    assert response.status_code in (422, 500)
+    assert "sampled" in response.json()["detail"] or "short" in response.json()["detail"]
+    assert app_client.get(f"/api/missions/{mission}/jobs").json() == []
 
 
 class _CancelBeforeStart:

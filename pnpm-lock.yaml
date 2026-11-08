@@ -195,6 +195,9 @@ importers:
       '@react-three/fiber':
         specifier: 9.8.2
         version: 9.8.2(@types/react@19.3.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)(three@0.186.1)
+      '@sparkjsdev/spark':
+        specifier: 2.4.0
+        version: 2.4.0(three@0.186.1)
       react:
         specifier: 19.3.1
         version: 19.3.1
@@ -270,6 +273,8 @@ importers:
       typescript:
         specifier: 6.0.3
         version: 6.0.3
+
+  packages/media: {}
 
 packages:
 
@@ -587,6 +592,11 @@ packages:
 
   '@rolldown/pluginutils@1.0.1':
     resolution: {integrity: sha512-2j9bGt5Jh8hj+vPtgzPtl72j0yRxHAyumoo6TNfAjsLB04UtpSvPbPcDcBMxz7n+9CYB0c1GxQFxYRg2jimqGw==}
+
+  '@sparkjsdev/spark@2.4.0':
+    resolution: {integrity: sha512-aUjgBfhwDRcF3nUwiAD6Nh7IwvxEmW9liz2qrAXIm2BlPYBmn81QbXIpGFLBSr/o0TKGvEXbNIsKujgPGV/7QQ==}
+    peerDependencies:
+      three: '>=0.180.0'
 
   '@tailwindcss/node@4.3.3':
     resolution: {integrity: sha512-/T8IKEsf9VTU6tLjgC7+sv2mOPtQxzE2jMw7u4Tt40Tx+QSZxpzh95/H6cMKoja9XuW7iMdLJYBB0o9G1CaAgg==}
@@ -2148,6 +2158,10 @@ snapshots:
     optional: true
 
   '@rolldown/pluginutils@1.0.1': {}
+
+  '@sparkjsdev/spark@2.4.0(three@0.186.1)':
+    dependencies:
+      three: 0.186.1
 
   '@tailwindcss/node@4.3.3':
     dependencies:

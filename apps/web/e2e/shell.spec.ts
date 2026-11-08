@@ -39,9 +39,10 @@ test('API indicator reports offline when the health endpoint is unreachable', as
 test('viewer controls toggle layers and expose pressed state', async ({ page }) => {
   await page.goto('/');
   const grid = page.getByRole('button', { name: 'Grid' });
-  await expect(grid).toHaveAttribute('aria-pressed', 'true');
-  await grid.click();
+  // The reference grid is off by default: it only distracted from the model.
   await expect(grid).toHaveAttribute('aria-pressed', 'false');
+  await grid.click();
+  await expect(grid).toHaveAttribute('aria-pressed', 'true');
   await page.getByRole('button', { name: 'Reset view' }).click();
   await expect(page.getByTestId('viewer-canvas').locator('canvas')).toBeVisible();
 });

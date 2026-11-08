@@ -8,6 +8,7 @@ from sqlalchemy import (
     JSON,
     BigInteger,
     Boolean,
+    Float,
     ForeignKey,
     Index,
     Integer,
@@ -93,6 +94,12 @@ class JobRecord(Base):
     telemetry_asset_id: Mapped[str | None] = mapped_column(String(32), default=None)
     pipeline: Mapped[str] = mapped_column(String(16))
     compute: Mapped[str] = mapped_column(String(16), default="local", server_default="local")
+    # Frame sampling (standard pipeline): the rate asked for and what the video gave.
+    fps: Mapped[float] = mapped_column(Float, default=1.0, server_default="1.0")
+    fps_auto: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+    frame_count: Mapped[int | None] = mapped_column(Integer, default=None)
+    fps_effective: Mapped[float | None] = mapped_column(Float, default=None)
+    frames_clamped: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
     status: Mapped[str] = mapped_column(String(24), index=True)
     attempt: Mapped[int] = mapped_column(Integer, default=1)
     last_seq: Mapped[int] = mapped_column(Integer, default=0)

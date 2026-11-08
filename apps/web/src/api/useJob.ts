@@ -96,8 +96,11 @@ export function useJob(missionId: string | null) {
     loaded: missionId !== null && loadedFor === missionId,
     stream: active ? stream : 'closed',
     error,
-    start: (pipeline: PipelineMode, compute: ComputeTarget = 'local') =>
-      missionId ? run(() => api.create(missionId, pipeline, compute)) : Promise.resolve(),
+    // `fps` null or undefined = automatic frame count (the server chooses from the length).
+    start: (pipeline: PipelineMode, compute: ComputeTarget = 'local', fps?: number | null) =>
+      missionId
+        ? run(() => api.create(missionId, pipeline, compute, fps ?? undefined))
+        : Promise.resolve(),
     cancel: () => (jobId ? run(() => api.cancel(jobId)) : Promise.resolve()),
     retry: () => (jobId ? run(() => api.retry(jobId)) : Promise.resolve()),
   };

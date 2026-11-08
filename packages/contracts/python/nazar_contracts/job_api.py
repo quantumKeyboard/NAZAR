@@ -19,8 +19,14 @@ from nazar_contracts.artifacts import (
     Matrix4,
     Provenance,
 )
-from nazar_contracts.events import EventType, StageProgressData, WarningData
-from nazar_contracts.jobs import ComputeTarget, JobStatus, StageName
+from nazar_contracts.events import EventType, JobEstimateData, StageProgressData, WarningData
+from nazar_contracts.jobs import (
+    FPS_MAX,
+    FPS_MIN,
+    ComputeTarget,
+    JobStatus,
+    StageName,
+)
 
 
 class _Model(BaseModel):
@@ -62,6 +68,45 @@ class StageState(_Model):
     reason: str | None = Field(default=None, description="Why it was skipped or failed.")
     duration_s: float | None = None
     progress: StageProgressData | None = None
+    peak_vram_mib: int | None = Field(default=None, description="Peak GPU memory it used.")
+    budget_mib: int | None = Field(default=None, description="GPU memory budget it ran under.")
+    started_at: datetime | None = Field(
+        default=None, description="When the stage started (server clock)."
+    )
+
+
+class SamplingInfo(_Model):
+    """Which frames of the video a job uses: chosen at the requested rate (or automatically),
+    one per time window (the sharpest usable frame), and lowered to the location's frame cap
+    if needed."""
+
+    auto: bool = Field(
+        default=False,
+        description="True when the frame count was chosen automatically from the video length.",
+    )
+    fps_requested: float
+    fps_effective: float = Field(description="Frames actually used per second of video.")
+    frames: int = Field(ge=0)
+    cap: int = Field(ge=1, description="Most frames this job's compute location allows.")
+    clamped: bool = Field(description="True when the request needed more frames than the cap.")
+
+
+class TimeModel(_Model):
+    """A worker's total job time as a straight line in the frame count, so the UI can quote an
+    estimate before a job exists: `fixed_s + per_frame_s * frames` (no telemetry assumed)."""
+
+    fixed_s: float = Field(ge=0)
+    per_frame_s: float = Field(ge=0)
+    basis: str
+
+
+class ModelReadiness(_Model):
+    """One model a worker can run: installed or not, and why not."""
+
+    name: str
+    stage: StageName
+    ready: bool
+    detail: str
 
 
 class Job(_Model):
@@ -81,6 +126,12 @@ class Job(_Model):
     warnings: list[WarningData]
     error: str | None = None
     retryable: bool = False
+    sampling: SamplingInfo | None = Field(
+        default=None, description="Frames used (standard pipeline); None for the test pipeline."
+    )
+    estimate: JobEstimateData | None = Field(
+        default=None, description="The worker's time forecast, once it has leased the job."
+    )
     created_at: datetime
     updated_at: datetime
 
@@ -92,6 +143,13 @@ class JobCreate(_Model):
     compute: ComputeTarget = Field(
         default=ComputeTarget.LOCAL,
         description="Run on the local GPU worker or the college GPU worker (online or bundle).",
+    )
+    fps: float | None = Field(
+        default=None,
+        ge=FPS_MIN,
+        le=FPS_MAX,
+        description="Frames per second of video to reconstruct from (standard pipeline). "
+        "Omit for automatic: the frame count is chosen from the video length.",
     )
 
 
@@ -112,6 +170,12 @@ class WorkerLeaseRequest(_Model):
     location: ComputeTarget = Field(
         default=ComputeTarget.LOCAL, description="Only jobs aimed at this location are leased."
     )
+    models: list[ModelReadiness] | None = Field(
+        default=None, description="Models this worker can run right now (absent: not reported)."
+    )
+    time_model: TimeModel | None = Field(
+        default=None, description="How long this worker takes per frame (absent: not reported)."
+    )
 
 
 class WorkerLease(_Model):
@@ -123,6 +187,7 @@ class WorkerLease(_Model):
     lease_expires_at: datetime
     video_asset_id: str
     keyframe_count: int = Field(ge=0)
+    sampling: SamplingInfo | None = None
     video_sha256: str
     telemetry_asset_id: str | None = Field(
         default=None,

@@ -9,7 +9,7 @@ GPU. Steps:
 2. Screened Poisson reconstruction.
 3. Trim what the input does not support: low Poisson density, and any vertex farther than
    `--max-gap` point spacings from every input point (Poisson's "bubbles").
-4. Clean-up, small disconnected pieces dropped.
+4. Clean-up, small disconnected pieces dropped, then Taubin smoothing (volume-preserving).
 5. Per-vertex colour (nearest input points) and confidence class: observed / estimated from
    the nearest input point's class when the vertex lies on the data, inferred when it bridges
    a gap between data (more than `--inferred-gap` spacings from any input point).
@@ -38,6 +38,7 @@ def main() -> int:
     ap.add_argument("--max-gap", type=float, default=6.0)
     ap.add_argument("--inferred-gap", type=float, default=2.5)
     ap.add_argument("--min-component", type=float, default=0.02)
+    ap.add_argument("--smooth-iterations", type=int, default=20)
     args = ap.parse_args()
 
     import open3d as o3d
@@ -90,6 +91,10 @@ def main() -> int:
     small = sizes < max(50, args.min_component * sizes.max()) if len(sizes) else sizes
     mesh.remove_triangles_by_mask(small[clusters] if len(sizes) else np.zeros(0, bool))
     mesh.remove_unreferenced_vertices()
+    if args.smooth_iterations > 0:
+        # Per-pixel depth noise makes Poisson surfaces lumpy; Taubin smoothing flattens that
+        # without shrinking the shape (unlike plain Laplacian smoothing).
+        mesh = mesh.filter_smooth_taubin(number_of_iterations=args.smooth_iterations)
     mesh.compute_vertex_normals()
 
     v = np.asarray(mesh.vertices)
@@ -116,6 +121,7 @@ def main() -> int:
         prior_normal_share=round(float(has_prior.mean()), 4),
         normals_flipped_to_camera=int(flip.sum()),
         poisson_depth=args.depth,
+        smooth_iterations=args.smooth_iterations,
         poisson_vertices=poisson_vertices,
         removed_low_density=int(low.sum()),
         removed_unsupported=int((far & ~low).sum()),

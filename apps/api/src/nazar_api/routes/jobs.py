@@ -24,8 +24,11 @@ from nazar_api.models import ArtifactRecord, AssetRecord, JobRecord, MissionReco
 from nazar_api.routes.missions import _owned_mission
 from nazar_api.security import SESSION_COOKIE, user_for_token
 from nazar_api.settings import Settings
-from nazar_api.storage import artifact_path
+from nazar_api.storage import PREFLIGHT_DIR, artifact_path, asset_dir, job_frames_dir, remove_tree
 from nazar_contracts import (
+    AUTO_MAX_FRAMES,
+    FPS_DEFAULT,
+    MAX_FRAMES,
     TERMINAL_STATUSES,
     AssetKind,
     AssetStatus,
@@ -33,7 +36,11 @@ from nazar_contracts import (
     Job,
     JobCreate,
     JobStatus,
+    PipelineMode,
+    PreflightReport,
 )
+from nazar_media import MediaError
+from nazar_media.sampling import sample_job_frames
 
 router = APIRouter(prefix="/api", tags=["jobs"])
 
@@ -53,8 +60,12 @@ def owned_job(db: Session, user: User, job_id: str) -> JobRecord:
 
 
 @router.post("/missions/{mission_id}/jobs", response_model=Job, status_code=201)
-def create_job(mission_id: str, body: JobCreate, user: UserDep, db: DbDep) -> Job:
-    """Queue reconstruction of the mission's validated video. Returns immediately."""
+def create_job(
+    mission_id: str, body: JobCreate, user: UserDep, db: DbDep, settings: SettingsDep
+) -> Job:
+    """Queue reconstruction of the mission's validated video. For the standard pipeline the
+    frames are sampled first (at `body.fps`, or automatically), so a video that cannot give
+    enough frames is refused here with a reason instead of failing later on the GPU."""
     mission = _owned_mission(db, user, mission_id)
     video = db.scalars(
         select(AssetRecord).where(
@@ -88,12 +99,16 @@ def create_job(mission_id: str, body: JobCreate, user: UserDep, db: DbDep) -> Jo
         telemetry_asset_id=telemetry,
         pipeline=body.pipeline.value,
         compute=body.compute.value,
+        fps=body.fps if body.fps is not None else FPS_DEFAULT,
+        fps_auto=body.fps is None,
         status=JobStatus.CREATED.value,
         attempt=1,
         last_seq=0,
     )
     db.add(job)
     db.flush()
+    if body.pipeline is PipelineMode.STANDARD:
+        _sample_frames(db, settings, job, video, body)
     append_event(
         db,
         job,
@@ -105,6 +120,37 @@ def create_job(mission_id: str, body: JobCreate, user: UserDep, db: DbDep) -> Jo
     )
     db.commit()
     return snapshot(db, job)
+
+
+def _sample_frames(
+    db: Session, settings: Settings, job: JobRecord, video: AssetRecord, body: JobCreate
+) -> None:
+    folder = asset_dir(settings, video.mission_id, video.id)
+    report_file = folder / PREFLIGHT_DIR / "preflight.json"
+    cap = MAX_FRAMES[body.compute]
+    try:
+        report = PreflightReport.model_validate_json(report_file.read_text(encoding="utf-8"))
+        plan = sample_job_frames(
+            folder / video.stored_name,
+            report,
+            body.fps,
+            cap,
+            job_frames_dir(settings, job.id),
+            auto_max=AUTO_MAX_FRAMES[body.compute],
+        )
+    except MediaError as exc:
+        db.rollback()
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, exc.message) from exc
+    except (OSError, ValueError, RuntimeError) as exc:
+        db.rollback()
+        remove_tree(job_frames_dir(settings, job.id))
+        raise HTTPException(
+            status.HTTP_500_INTERNAL_SERVER_ERROR,
+            f"The video's frames could not be sampled ({exc}).",
+        ) from exc
+    job.frame_count = len(plan.keyframes)
+    job.fps_effective = plan.fps_effective
+    job.frames_clamped = plan.clamped
 
 
 @router.get("/missions/{mission_id}/jobs", response_model=list[Job])

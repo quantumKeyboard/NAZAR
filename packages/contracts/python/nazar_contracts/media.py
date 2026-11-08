@@ -61,6 +61,7 @@ class KeyframeReason(StrEnum):
     NOVELTY = "novelty"
     MAX_GAP = "max_gap"
     END = "end"
+    SAMPLED = "sampled"
 
 
 class Keyframe(BaseModel):

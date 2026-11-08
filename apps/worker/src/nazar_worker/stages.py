@@ -38,7 +38,9 @@ STAGE_PLAN: tuple[StagePlan, ...] = (
     StagePlan(
         StageName.DENSE_RECONSTRUCTION, "Fusion + Gaussian splat (gsplat); CPU: sparse", 7, False
     ),
-    StagePlan(StageName.SURFACE_PROCESSING, "Open3D screened Poisson mesh", 7, optional=True),
+    StagePlan(
+        StageName.SURFACE_PROCESSING, "Height-map solid with baked texture", 7, optional=True
+    ),
     StagePlan(StageName.ANALYSIS, "Confidence + per-model contributions", 8, optional=False),
     StagePlan(StageName.EXPORTING, "PLY / LAS / GLB / mesh / splat + report", 8, optional=False),
 )
@@ -71,6 +73,9 @@ class StageContext:
     check_cancel: Callable[[], None]
     telemetry: Callable[[], dict[str, Any] | None] = lambda: None
     """The job's normalised telemetry track, or None (not supplied, or removed since)."""
+    gpu: Callable[[int | None, int | None], None] = lambda peak, budget: None
+    """Report the GPU memory a stage used: (peak MiB, budget MiB; 0 = no cap). The runner adds
+    the largest peak to the stage's `stage.completed` event."""
 
 
 class StageAdapter(Protocol):

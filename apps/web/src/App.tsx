@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { useApiStatus } from './api/useApiStatus';
 import { useJob } from './api/useJob';
 import { useMissions } from './api/useMissions';
+import { usePreflight } from './api/usePreflight';
 import { useSession } from './api/useSession';
 import { AuthCard } from './components/AuthCard';
 import { Header } from './components/Header';
@@ -12,7 +13,7 @@ import { PreflightPanel } from './components/PreflightPanel';
 import { ReadinessPanel } from './components/ReadinessPanel';
 import { Card } from './components/ui';
 import { Viewport } from './components/Viewport';
-import { displayCloud } from './lib/jobState';
+import { displayCloud, displayMesh, displaySplat } from './lib/jobState';
 import { useViewerStore } from './state/viewerStore';
 
 export function App() {
@@ -23,13 +24,16 @@ export function App() {
   const readyVideo = missions.selected?.video?.status === 'ready' ? missions.selected.video : null;
   const signedInMission = session.state === 'signed-in' ? (missions.selected?.id ?? null) : null;
   const job = useJob(signedInMission);
+  const preflight = usePreflight(readyVideo?.id ?? null);
   const setLayers = useViewerStore((s) => s.setLayers);
   const cloud = displayCloud(job.job);
   const path = job.job?.artifacts.find((a) => a.kind === 'camera_trajectory') ?? null;
+  const mesh = displayMesh(job.job);
+  const splat = displaySplat(job.job);
 
   useEffect(() => {
-    setLayers(cloud, path);
-  }, [cloud, path, setLayers]);
+    setLayers(cloud, path, mesh, splat);
+  }, [cloud, path, mesh, splat, setLayers]);
 
   return (
     <>
@@ -94,6 +98,7 @@ export function App() {
                     ? (status.readiness.workers ?? [])
                     : []
                 }
+                report={preflight}
                 onStart={job.start}
                 onCancel={job.cancel}
                 onRetry={job.retry}
@@ -101,7 +106,10 @@ export function App() {
             )}
             <ReadinessPanel status={status} />
           </div>
-          <Viewport />
+          {/* Stays in view and keeps a fixed height while the (long) results column scrolls. */}
+          <div className="lg:sticky lg:top-4 lg:h-[min(calc(100vh-2rem),900px)] lg:self-start">
+            <Viewport />
+          </div>
         </div>
 
         {readyVideo && <PreflightPanel key={readyVideo.id} assetId={readyVideo.id} />}

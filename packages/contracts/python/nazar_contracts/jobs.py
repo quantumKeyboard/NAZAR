@@ -35,6 +35,23 @@ class ComputeTarget(StrEnum):
     COLLEGE = "college"
 
 
+FPS_MIN = 0.25
+FPS_MAX = 4.0
+FPS_DEFAULT = 1.0
+"""Frames per second of video the reconstruction samples (the user's choice, default 1)."""
+MIN_FRAMES = 3
+"""Fewer frames cannot be reconstructed."""
+MAX_FRAMES: dict[ComputeTarget, int] = {ComputeTarget.LOCAL: 64, ComputeTarget.COLLEGE: 128}
+"""Most frames one job may use at each location. The local cap keeps a 6 GB card's run time
+and memory in check; a request above it is lowered (and reported), never silently cut."""
+AUTO_MIN_FRAMES = 24
+"""Automatic mode never uses fewer frames than this (a short clip is sampled more densely
+than 1 fps): a handful of views cannot give a usable reconstruction."""
+AUTO_MAX_FRAMES: dict[ComputeTarget, int] = {ComputeTarget.LOCAL: 40, ComputeTarget.COLLEGE: 96}
+"""Most frames automatic mode asks for. Below the hard caps above so that a long clip still
+finishes in reasonable time and memory on that location."""
+
+
 class StageName(StrEnum):
     """Processing stages. Each value is also the job status while that stage runs.
 

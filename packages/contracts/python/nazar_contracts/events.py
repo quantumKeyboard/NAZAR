@@ -24,6 +24,7 @@ class EventType(StrEnum):
     STAGE_PROGRESS = "stage.progress"
     STAGE_COMPLETED = "stage.completed"
     STAGE_SKIPPED = "stage.skipped"
+    JOB_ESTIMATE = "job.estimate"
     WARNING = "warning"
     ARTIFACT_AVAILABLE = "artifact.available"
     PREVIEW_UPDATED = "preview.updated"
@@ -88,11 +89,34 @@ class StageProgress(_Event):
 
 class StageCompletedData(BaseModel):
     duration_s: float = Field(ge=0)
+    peak_vram_mib: int | None = Field(
+        default=None, ge=0, description="Peak GPU memory this stage's models used, if any."
+    )
+    budget_mib: int | None = Field(
+        default=None, ge=0, description="The GPU memory budget it ran under (0: unlimited)."
+    )
 
 
 class StageCompleted(_Event):
     type: Literal[EventType.STAGE_COMPLETED]
     data: StageCompletedData
+
+
+class JobEstimateData(BaseModel):
+    """The worker's forecast of how long each stage will take, sent once the job is leased.
+    Clients combine it with the stages' real progress to show the time remaining."""
+
+    frames: int = Field(ge=0, description="Frames the estimate was made for.")
+    basis: str = Field(description="Where the numbers come from, in words (shown to the user).")
+    stages: dict[StageName, float] = Field(
+        description="Estimated seconds per stage; 0 for a stage already known to be skipped."
+    )
+    total_s: float = Field(ge=0)
+
+
+class JobEstimate(_Event):
+    type: Literal[EventType.JOB_ESTIMATE]
+    data: JobEstimateData
 
 
 class StageSkippedData(BaseModel):
@@ -164,6 +188,7 @@ JobEvent = Annotated[
     | StageProgress
     | StageCompleted
     | StageSkipped
+    | JobEstimate
     | WarningRaised
     | ArtifactAvailable
     | PreviewUpdated

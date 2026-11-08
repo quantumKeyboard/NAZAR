@@ -42,10 +42,7 @@ def keyframe_track(client: TestClient, snap: dict[str, Any]) -> tuple[np.ndarray
     """Video times and local camera centres of the placed keyframes."""
     traj = next(a for a in snap["artifacts"] if a["kind"] == "camera_trajectory")
     poses = client.get(f"/api/artifacts/{traj['id']}/content").json()["poses"]
-    video = client.get(f"/api/missions/{snap['mission_id']}").json()["video"]
-    preflight = client.get(f"/api/assets/{video['id']}/preflight").json()
-    t_of = {kf["index"]: kf["t"] for kf in preflight["keyframes"]}
-    times = np.array([t_of[p["frame_index"]] for p in poses])
+    times = np.array([p["time_s"] for p in poses])
     return times, np.array([p["position"] for p in poses])
 
 
